@@ -7,6 +7,7 @@ A collection of pi extension packages published to npm and installable directly 
 ```bash
 pi install npm:@haphazarddev/pi-vim-quit
 pi install npm:@haphazarddev/pi-ask-user-question
+pi install npm:@haphazarddev/pi-copy-code-block
 ```
 
 ## Packages
@@ -41,6 +42,19 @@ pi install npm:@haphazarddev/pi-ask-user-question
 Package docs:
 - [`extensions/pi-ask-user-question/README.md`](./extensions/pi-ask-user-question/README.md)
 
+### `@haphazarddev/pi-copy-code-block`
+
+Copy a code block from the latest assistant message to your clipboard with `/copy-code` or `Ctrl+Alt+C`.
+
+Install:
+
+```bash
+pi install npm:@haphazarddev/pi-copy-code-block
+```
+
+Package docs:
+- [`extensions/pi-copy-code-block/README.md`](./extensions/pi-copy-code-block/README.md)
+
 ## Install from a local checkout
 
 If you want to test directly from this repository:
@@ -48,6 +62,7 @@ If you want to test directly from this repository:
 ```bash
 pi install ./extensions/pi-vim-quit
 pi install ./extensions/pi-ask-user-question
+pi install ./extensions/pi-copy-code-block
 ```
 
 ## For maintainers

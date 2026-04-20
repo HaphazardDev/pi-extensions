@@ -1,0 +1,47 @@
+{
+  "name": "@haphazarddev/pi-copy-code-block",
+  "version": "0.1.0",
+  "description": "A pi extension that copies code blocks from the latest assistant message to the clipboard.",
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HaphazardDev/pi-extensions.git",
+    "directory": "extensions/pi-copy-code-block"
+  },
+  "homepage": "https://github.com/HaphazardDev/pi-extensions/tree/main/extensions/pi-copy-code-block#readme",
+  "bugs": {
+    "url": "https://github.com/HaphazardDev/pi-extensions/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "clipboard",
+    "code-block",
+    "productivity"
+  ],
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "dependencies": {
+    "@mariozechner/clipboard": "^0.3.2"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  }
+}
