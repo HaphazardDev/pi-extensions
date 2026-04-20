@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write # enables npm trusted publishing via GitHub OIDC
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          cache: true
+
+      - name: Typecheck
+        run: vp run typecheck
+
+      - name: Create release PR or publish packages
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          version: vp run version-packages
+          publish: vp run release
+          title: "chore: release packages"
+          commit: "chore: release packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Published packages summary
+        if: steps.changesets.outputs.published == 'true'
+        run: |
+          echo 'Published packages:'
+          echo '${{ steps.changesets.outputs.publishedPackages }}'

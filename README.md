@@ -54,7 +54,34 @@ pi install ./extensions/pi-ask-user-question
 
 This repository is an npm workspace monorepo with packages under `extensions/`.
 
+### Local commands
+
 ```bash
 vp install
-vp exec tsc --noEmit
+vp run typecheck
+vp run changeset
+vp run release:status
 ```
+
+### Release workflow
+
+This repo uses Changesets for automated npm releases.
+
+#### Initial publish
+
+For the very first release of a package, keep the package at its existing version (currently `0.1.0`) and publish it without a changeset. On `main`, the workflow will attempt to publish any unpublished packages at their current version.
+
+#### Ongoing releases
+
+1. Add a changeset for consumer-facing package changes with `vp run changeset`.
+2. Merge to `main`.
+3. GitHub Actions opens or updates a release PR.
+4. Merging the release PR publishes updated `@haphazarddev/*` packages to npm.
+
+#### Publishing auth
+
+Prefer npm trusted publishing with GitHub Actions OIDC. This workflow already includes `id-token: write` for that setup.
+
+If you are not using trusted publishing yet, you can instead provide an `NPM_TOKEN` GitHub Actions secret.
+
+The workflow is defined in `.github/workflows/release.yml`.

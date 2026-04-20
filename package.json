@@ -16,11 +16,16 @@
     "extensions/*"
   ],
   "scripts": {
+    "changeset": "changeset",
     "typecheck": "tsc --noEmit",
+    "version-packages": "changeset version",
+    "release": "changeset publish",
+    "release:status": "changeset status --verbose",
     "pack:pi-vim-quit": "npm pack --workspace extensions/pi-vim-quit",
     "pack:pi-ask-user-question": "npm pack --workspace extensions/pi-ask-user-question"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.31.0",
     "@mariozechner/pi-coding-agent": "^0.67.68",
     "@mariozechner/pi-tui": "^0.67.68",
     "@sinclair/typebox": "^0.34.41",
