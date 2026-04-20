@@ -1,0 +1,30 @@
+{
+  "name": "pi-extensions",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HaphazardDev/pi-extensions.git"
+  },
+  "homepage": "https://github.com/HaphazardDev/pi-extensions#readme",
+  "bugs": {
+    "url": "https://github.com/HaphazardDev/pi-extensions/issues"
+  },
+  "packageManager": "npm@11.12.1",
+  "workspaces": [
+    "extensions/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "pack:pi-vim-quit": "npm pack --workspace extensions/pi-vim-quit",
+    "pack:pi-ask-user-question": "npm pack --workspace extensions/pi-ask-user-question"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-coding-agent": "^0.67.68",
+    "@mariozechner/pi-tui": "^0.67.68",
+    "@sinclair/typebox": "^0.34.41",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3"
+  }
+}

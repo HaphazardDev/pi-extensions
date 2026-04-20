@@ -1,0 +1,44 @@
+{
+  "name": "@haphazarddev/pi-ask-user-question",
+  "version": "0.1.0",
+  "description": "A pi extension that adds an ask_user_question tool for collecting clarification, confirmation, and input through the UI.",
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HaphazardDev/pi-extensions.git",
+    "directory": "extensions/pi-ask-user-question"
+  },
+  "homepage": "https://github.com/HaphazardDev/pi-extensions/tree/main/extensions/pi-ask-user-question#readme",
+  "bugs": {
+    "url": "https://github.com/HaphazardDev/pi-extensions/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi-tool",
+    "prompting",
+    "ui"
+  ],
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*",
+    "@sinclair/typebox": "*"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "name": "@haphazarddev/pi-vim-quit",
+  "version": "0.1.0",
+  "description": "A tiny pi extension that quits when you type :q, :qa, or :wq.",
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HaphazardDev/pi-extensions.git",
+    "directory": "extensions/pi-vim-quit"
+  },
+  "homepage": "https://github.com/HaphazardDev/pi-extensions/tree/main/extensions/pi-vim-quit#readme",
+  "bugs": {
+    "url": "https://github.com/HaphazardDev/pi-extensions/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "vim",
+    "quit"
+  ],
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  }
+}
