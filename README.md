@@ -8,6 +8,7 @@ A collection of pi extension packages published to npm and installable directly 
 pi install npm:@haphazarddev/pi-vim-quit
 pi install npm:@haphazarddev/pi-ask-user-question
 pi install npm:@haphazarddev/pi-copy-code-block
+pi install npm:@haphazarddev/pi-interactive-code-review
 ```
 
 ## Packages
@@ -55,6 +56,19 @@ pi install npm:@haphazarddev/pi-copy-code-block
 Package docs:
 - [`extensions/pi-copy-code-block/README.md`](./extensions/pi-copy-code-block/README.md)
 
+### `@haphazarddev/pi-interactive-code-review`
+
+Review your branch like a pull request inside pi: browse the diff against the default branch, leave line/hunk/file comments, batch them up, or send them immediately to the agent and see replies attached back to the review thread.
+
+Install:
+
+```bash
+pi install npm:@haphazarddev/pi-interactive-code-review
+```
+
+Package docs:
+- [`extensions/pi-interactive-code-review/README.md`](./extensions/pi-interactive-code-review/README.md)
+
 ## Install from a local checkout
 
 If you want to test directly from this repository:
@@ -63,6 +77,7 @@ If you want to test directly from this repository:
 pi install ./extensions/pi-vim-quit
 pi install ./extensions/pi-ask-user-question
 pi install ./extensions/pi-copy-code-block
+pi install ./extensions/pi-interactive-code-review
 ```
 
 ## For maintainers

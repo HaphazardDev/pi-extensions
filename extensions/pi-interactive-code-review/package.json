@@ -1,0 +1,43 @@
+{
+  "name": "@haphazarddev/pi-interactive-code-review",
+  "version": "0.1.0",
+  "description": "A pi extension for interactive code review against your default branch, including uncommitted changes, with line or hunk comments, batching, and inline agent responses.",
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HaphazardDev/pi-extensions.git",
+    "directory": "extensions/pi-interactive-code-review"
+  },
+  "homepage": "https://github.com/HaphazardDev/pi-extensions/tree/main/extensions/pi-interactive-code-review#readme",
+  "bugs": {
+    "url": "https://github.com/HaphazardDev/pi-extensions/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "code-review",
+    "git",
+    "diff"
+  ],
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  }
+}

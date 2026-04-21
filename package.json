@@ -23,7 +23,8 @@
     "release:status": "changeset status --verbose",
     "pack:pi-vim-quit": "npm pack --workspace extensions/pi-vim-quit",
     "pack:pi-ask-user-question": "npm pack --workspace extensions/pi-ask-user-question",
-    "pack:pi-copy-code-block": "npm pack --workspace extensions/pi-copy-code-block"
+    "pack:pi-copy-code-block": "npm pack --workspace extensions/pi-copy-code-block",
+    "pack:pi-interactive-code-review": "npm pack --workspace extensions/pi-interactive-code-review"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
