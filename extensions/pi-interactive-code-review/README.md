@@ -2,7 +2,7 @@
 
 Review your current branch and working tree like a pull request, directly inside pi.
 
-It opens an interactive diff browser against your default branch, lets you move file by file and hunk by hunk, attach review comments to lines, hunks, or whole files, and then either batch those comments or send them to the agent immediately.
+It opens an interactive diff browser against your default branch, lets you move file by file and hunk by hunk, toggle word wrap for long diff lines, attach review comments to lines, hunks, or whole files, and then either batch those comments or send them to the agent immediately.
 
 When the agent replies, the extension stores the response on the matching review thread so you can reopen the review UI and follow the conversation inline with the diff.
 
@@ -59,6 +59,7 @@ Inside the review UI:
 - `x` or `Backspace` - delete a visible comment thread
 - `s` - send all queued review comments as one batch
 - `r` - refresh the diff against the current base ref
+- `w` - toggle word wrap in the diff viewer
 - `?` - toggle help
 - `Esc` / `q` - close
 

@@ -4,7 +4,7 @@ import type {
   ExtensionContext,
   Theme,
 } from "@mariozechner/pi-coding-agent";
-import { Editor, type EditorTheme, Key, matchesKey, truncateToWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
+import { Editor, type EditorTheme, Key, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 
 const REVIEW_STATE_TYPE = "interactive-code-review-state";
 const STATUS_KEY = "interactive-code-review";
@@ -110,6 +110,7 @@ interface ReviewUIState {
   selectedHunkIndex: number;
   selectedLineIndex: number;
   showHelp: boolean;
+  wrapDiff: boolean;
 }
 
 type ReviewAction =
@@ -143,6 +144,7 @@ function createUIState(): ReviewUIState {
     selectedHunkIndex: 0,
     selectedLineIndex: 0,
     showHelp: false,
+    wrapDiff: false,
   };
 }
 
@@ -669,6 +671,12 @@ class ReviewBrowserComponent {
       return;
     }
 
+    if (data === "w") {
+      this.uiState.wrapDiff = !this.uiState.wrapDiff;
+      this.refresh();
+      return;
+    }
+
     if (matchesKey(data, Key.tab) || data === "n") {
       this.moveFile(1);
       return;
@@ -932,6 +940,35 @@ class ReviewBrowserComponent {
     this.moveLine(delta * halfPage);
   }
 
+  private renderDiffLine(lines: string[], width: number, oldWidth: number, newWidth: number, diffLine: DiffLine, isSelected: boolean, lineThreads: number) {
+    const theme = this.theme;
+    const marker = lineThreads > 0 ? theme.fg("warning", "●") : theme.fg("dim", "·");
+    const pointer = isSelected ? theme.fg("accent", ">") : " ";
+    const oldCell = `${diffLine.oldLineNumber ?? ""}`.padStart(oldWidth, " ");
+    const newCell = `${diffLine.newLineNumber ?? ""}`.padStart(newWidth, " ");
+    const blankOldCell = " ".repeat(oldWidth);
+    const blankNewCell = " ".repeat(newWidth);
+    const prefix = diffLine.kind === "add" ? "+" : diffLine.kind === "del" ? "-" : " ";
+    const color = diffLine.kind === "add" ? "toolDiffAdded" : diffLine.kind === "del" ? "toolDiffRemoved" : "toolDiffContext";
+    const linePrefix = `${pointer}${marker} ${theme.fg("dim", oldCell)} ${theme.fg("dim", newCell)} ${theme.fg("dim", "│")} `;
+
+    if (!this.uiState.wrapDiff) {
+      const raw = `${linePrefix}${theme.fg(color, `${prefix}${diffLine.text}`)}`;
+      const rendered = truncateToWidth(raw, width);
+      lines.push(isSelected ? theme.bg("selectedBg", rendered) : rendered);
+      return;
+    }
+
+    const continuationPrefix = `  ${theme.fg("dim", blankOldCell)} ${theme.fg("dim", blankNewCell)} ${theme.fg("dim", "│")} `;
+    const contentWidth = Math.max(1, width - visibleWidth(linePrefix));
+    const wrapped = wrapTextWithAnsi(theme.fg(color, `${prefix}${diffLine.text}`), contentWidth);
+
+    wrapped.forEach((segment, index) => {
+      const rendered = truncateToWidth(`${index === 0 ? linePrefix : continuationPrefix}${segment}`, width, "");
+      lines.push(isSelected ? theme.bg("selectedBg", rendered) : rendered);
+    });
+  }
+
   render(width: number): string[] {
     if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
 
@@ -947,6 +984,7 @@ class ReviewBrowserComponent {
       theme.fg("accent", theme.bold("Review")),
       theme.fg("muted", `against ${this.snapshot.baseRef}`),
       theme.fg("muted", `${this.snapshot.files.length} ${this.snapshot.files.length === 1 ? "file" : "files"}`),
+      theme.fg(this.uiState.wrapDiff ? "accent" : "dim", `wrap ${this.uiState.wrapDiff ? "on" : "off"}`),
     ];
     if (queued > 0) headerParts.push(theme.fg("accent", formatQueuedThreadCount(queued)));
     if (awaiting > 0) headerParts.push(theme.fg("warning", formatAwaitingReplyCount(awaiting)));
@@ -995,6 +1033,7 @@ class ReviewBrowserComponent {
     if (this.uiState.showHelp) {
       lines.push("");
       renderWrapped(theme.fg("dim", "Move: n/p file • [ prev hunk • ] next hunk • j/k line • d/u half-page"), width, lines);
+      renderWrapped(theme.fg("dim", `View: w wrap ${this.uiState.wrapDiff ? "off" : "on"}`), width, lines);
       renderWrapped(
         theme.fg(
           "dim",
@@ -1019,15 +1058,7 @@ class ReviewBrowserComponent {
       const diffLine = hunk.lines[i]!;
       const isSelected = i === this.uiState.selectedLineIndex;
       const lineThreads = countThreadsForLine(this.state, file, hunk, diffLine);
-      const marker = lineThreads > 0 ? theme.fg("warning", "●") : theme.fg("dim", "·");
-      const pointer = isSelected ? theme.fg("accent", ">") : " ";
-      const oldCell = `${diffLine.oldLineNumber ?? ""}`.padStart(oldWidth, " ");
-      const newCell = `${diffLine.newLineNumber ?? ""}`.padStart(newWidth, " ");
-      const prefix = diffLine.kind === "add" ? "+" : diffLine.kind === "del" ? "-" : " ";
-      const color = diffLine.kind === "add" ? "toolDiffAdded" : diffLine.kind === "del" ? "toolDiffRemoved" : "toolDiffContext";
-      const raw = `${pointer}${marker} ${theme.fg("dim", oldCell)} ${theme.fg("dim", newCell)} ${theme.fg("dim", "│")} ${theme.fg(color, `${prefix}${diffLine.text}`)}`;
-      const rendered = truncateToWidth(raw, width);
-      lines.push(isSelected ? theme.bg("selectedBg", rendered) : rendered);
+      this.renderDiffLine(lines, width, oldWidth, newWidth, diffLine, isSelected, lineThreads);
     }
 
     if (windowEnd < hunk.lines.length) {
