@@ -2,7 +2,7 @@
 
 Review your current branch and working tree like a pull request, directly inside pi.
 
-It opens an interactive diff browser against your default branch, lets you move file by file and hunk by hunk, toggle word wrap for long diff lines, attach review comments to lines, hunks, or whole files, and then either batch those comments or send them to the agent immediately.
+It opens an interactive diff browser against your default branch, lets you move file by file and hunk by hunk, toggle word wrap for long diff lines, open a searchable changed-file list with per-file +/- summaries, attach review comments to lines, hunks, or whole files, and then either batch those comments or send them to the agent immediately.
 
 When the agent replies, the extension stores the response on the matching review thread so you can reopen the review UI and follow the conversation inline with the diff.
 
@@ -53,6 +53,7 @@ Inside the review UI, press `?` to show the full control reference in the lower 
 
 ### Actions
 
+- `/` or `g` - open the changed-file picker with fuzzy file matching and per-file summaries
 - `c` - start an inline line comment or question
 - `H` - start an inline hunk comment or question
 - `F` - start an inline file-level comment or question
@@ -62,19 +63,32 @@ Inside the review UI, press `?` to show the full control reference in the lower 
 - `r` - refresh the diff against the current base ref
 - `w` - toggle word wrap in the diff viewer
 - `?` - toggle help
+- `F1` / `Alt+H` - toggle help, including while a text input is focused
 - `Esc` / `q` - close
+
+While the file picker is open:
+
+- type to fuzzy-match changed files by filename only
+- matched characters are highlighted in the picker
+- typing resets selection to the top-ranked result
+- `↑` / `↓` - move the selected match while keeping focus in the filter input
+- `Ctrl+N` / `Ctrl+P` - alternate next/previous match keys
+- `Enter` - jump to the selected file
+- `F1` / `Alt+H` - toggle help without leaving the filter input
+- `Esc` - close the picker
 
 While the inline comment editor is open:
 
 - `Enter` - save the comment
 - `Shift+Enter` - insert a newline
 - `Tab` - toggle between **batch** and **immediate** send mode
+- `F1` / `Alt+H` - toggle help without leaving the editor
 - `Esc` - cancel editing
 
 ## Review flow
 
 1. Open `/review`
-2. Navigate through the diff file by file
+2. Navigate through the diff file by file, or press `/` / `g` to jump through a fuzzy searchable file list with `+added` / `-removed` summaries
 3. Add comments/questions inline while still seeing the diff above the editor
 4. Use `Tab` in the inline editor to choose either:
    - **batch** to queue the thread

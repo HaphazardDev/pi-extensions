@@ -4,7 +4,7 @@ import type {
   ExtensionContext,
   Theme,
 } from "@mariozechner/pi-coding-agent";
-import { Editor, type EditorTheme, Key, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
+import { Editor, type EditorTheme, Key, matchesKey, SelectList, type SelectItem, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 
 const REVIEW_STATE_TYPE = "interactive-code-review-state";
 const STATUS_KEY = "interactive-code-review";
@@ -114,6 +114,25 @@ interface ReviewUIState {
   selectedLineIndex: number;
   showHelp: boolean;
   wrapDiff: boolean;
+}
+
+interface FileJumpItem {
+  value: string;
+  fileIndex: number;
+  rawLabel: string;
+  rawDescription: string;
+  file: DiffFile;
+}
+
+interface SearchTargetMatch {
+  score: number;
+  positions: number[];
+}
+
+interface FileJumpMatch {
+  score: number;
+  labelPositions: number[];
+  descriptionPositions: number[];
 }
 
 type ReviewAction =
@@ -597,6 +616,163 @@ function buildFileExcerpt(file: DiffFile): string {
   return selectedHunks.join("\n\n");
 }
 
+function createEditorTheme(theme: Theme): EditorTheme {
+  return {
+    borderColor: (s) => theme.fg("accent", s),
+    selectList: {
+      selectedPrefix: (t) => theme.fg("accent", t),
+      selectedText: (t) => theme.fg("accent", t),
+      description: (t) => theme.fg("muted", t),
+      scrollInfo: (t) => theme.fg("dim", t),
+      noMatch: (t) => theme.fg("warning", t),
+    },
+  };
+}
+
+function formatFileChangeSummary(file: DiffFile): string {
+  return `+${file.additions} -${file.deletions} • ${file.status}`;
+}
+
+function formatFileJumpDescription(file: DiffFile, state: PersistedReviewState): string {
+  const parts = [formatFileChangeSummary(file)];
+  if (file.hunks.length > 0) parts.push(formatCount("hunk", file.hunks.length));
+  else if (file.note) parts.push("no text hunks");
+
+  const threadCount = countThreadsForFile(state, file);
+  if (threadCount > 0) parts.push(formatCount("thread", threadCount));
+  return parts.join(" • ");
+}
+
+function isPrintableCharacter(data: string): boolean {
+  return data.length === 1 && data.charCodeAt(0) >= 32 && data !== "\x7f";
+}
+
+function isHelpToggleKey(data: string): boolean {
+  return data === "?" || matchesKey(data, Key.f1) || matchesKey(data, Key.alt("h"));
+}
+
+function isTextInputHelpToggleKey(data: string): boolean {
+  return matchesKey(data, Key.f1) || matchesKey(data, Key.alt("h"));
+}
+
+function basenameFromPath(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  const lastSlash = normalized.lastIndexOf("/");
+  return lastSlash >= 0 ? normalized.slice(lastSlash + 1) : normalized;
+}
+
+function contiguousPositions(start: number, length: number): number[] {
+  return Array.from({ length }, (_, index) => start + index);
+}
+
+function fuzzySubsequenceMatch(query: string, target: string): SearchTargetMatch | null {
+  if (query.length === 0) return { score: 0, positions: [] };
+
+  let queryIndex = 0;
+  let score = 0;
+  let lastMatchIndex = -1;
+  const positions: number[] = [];
+
+  for (let i = 0; i < target.length && queryIndex < query.length; i++) {
+    if (target[i] !== query[queryIndex]) continue;
+
+    score += 10;
+    if (i === 0 || "/._- ".includes(target[i - 1] ?? "")) score += 18;
+    if (lastMatchIndex === i - 1) score += 14;
+    else if (lastMatchIndex >= 0) score -= Math.min(6, i - lastMatchIndex - 1);
+
+    positions.push(i);
+    lastMatchIndex = i;
+    queryIndex++;
+  }
+
+  if (queryIndex !== query.length) return null;
+  score -= Math.max(0, target.length - query.length);
+  return { score: 140 + score, positions };
+}
+
+function matchSearchTarget(query: string, target: string): SearchTargetMatch | null {
+  if (query.length === 0) return { score: 0, positions: [] };
+  if (target.length === 0) return null;
+
+  if (target === query) return { score: 600 - target.length, positions: contiguousPositions(0, query.length) };
+  if (target.startsWith(query)) return { score: 450 - Math.max(0, target.length - query.length), positions: contiguousPositions(0, query.length) };
+
+  const substringIndex = target.indexOf(query);
+  if (substringIndex >= 0) {
+    const boundaryBonus = substringIndex === 0 || "/._- ".includes(target[substringIndex - 1] ?? "") ? 40 : 0;
+    return {
+      score: 320 + boundaryBonus - substringIndex,
+      positions: contiguousPositions(substringIndex, query.length),
+    };
+  }
+
+  return fuzzySubsequenceMatch(query, target);
+}
+
+function remapPositionsToDisplay(source: string, display: string, positions: number[], preferLast = false): number[] {
+  if (positions.length === 0) return [];
+  const sourceIndex = preferLast ? display.lastIndexOf(source) : display.indexOf(source);
+  if (sourceIndex < 0) return [];
+  return positions.map((position) => sourceIndex + position).filter((position) => position >= 0 && position < display.length);
+}
+
+function uniqueSortedPositions(positions: Iterable<number>): number[] {
+  return Array.from(new Set(positions)).sort((a, b) => a - b);
+}
+
+function highlightMatchedCharacters(text: string, positions: number[], theme: Theme): string {
+  if (positions.length === 0) return text;
+
+  const highlighted = new Set(positions);
+  let output = "";
+  let current = "";
+  let currentHighlighted = false;
+
+  const flush = () => {
+    if (!current) return;
+    output += currentHighlighted ? theme.fg("warning", theme.bold(current)) : current;
+    current = "";
+  };
+
+  for (let i = 0; i < text.length; i++) {
+    const nextHighlighted = highlighted.has(i);
+    if (current.length > 0 && nextHighlighted !== currentHighlighted) flush();
+    currentHighlighted = nextHighlighted;
+    current += text[i];
+  }
+
+  flush();
+  return output;
+}
+
+function scoreFileJumpMatch(query: string, file: DiffFile): FileJumpMatch | null {
+  const terms = query.toLowerCase().split(/\s+/).filter((term) => term.length > 0);
+  if (terms.length === 0) {
+    return { score: 0, labelPositions: [], descriptionPositions: [] };
+  }
+
+  const basename = basenameFromPath(file.filePath).toLowerCase();
+  const displayPath = file.displayPath.toLowerCase();
+  const labelPositions: number[] = [];
+
+  let totalScore = 0;
+  for (const term of terms) {
+    const match = matchSearchTarget(term, basename);
+    if (match === null) return null;
+
+    totalScore += match.score;
+    labelPositions.push(...remapPositionsToDisplay(basename, displayPath, match.positions, true));
+  }
+
+  totalScore -= Math.max(0, basename.length - query.replace(/\s+/g, "").length);
+  return {
+    score: totalScore,
+    labelPositions: uniqueSortedPositions(labelPositions),
+    descriptionPositions: [],
+  };
+}
+
 function ensureFileSelected(snapshot: ReviewSnapshot | undefined, uiState: ReviewUIState) {
   clampSelectionToSnapshot(snapshot, uiState);
 }
@@ -605,7 +781,11 @@ class ReviewBrowserComponent {
   private cachedWidth?: number;
   private cachedLines?: string[];
   private readonly editor: Editor;
-  private composeMode: "browse" | "compose" = "browse";
+  private readonly filterEditor: Editor;
+  private fileSelectList: SelectList;
+  private readonly allFileJumpItems: FileJumpItem[] = [];
+  private readonly fileIndexByValue = new Map<string, number>();
+  private composeMode: "browse" | "compose" | "jump" = "browse";
   private draftTarget?: ThreadTargetKind;
   private editingThreadId?: string;
   private draftDispatchMode: "batch" | "immediate" = "batch";
@@ -617,13 +797,18 @@ class ReviewBrowserComponent {
     this.tui.requestRender();
   }
 
+  private syncFocusedEditors(): void {
+    this.editor.focused = this._focused && this.composeMode === "compose";
+    this.filterEditor.focused = this._focused && this.composeMode === "jump";
+  }
+
   get focused(): boolean {
     return this._focused;
   }
 
   set focused(value: boolean) {
     this._focused = value;
-    this.editor.focused = value && this.composeMode === "compose";
+    this.syncFocusedEditors();
   }
 
   constructor(
@@ -634,30 +819,52 @@ class ReviewBrowserComponent {
     private readonly theme: Theme,
     private readonly done: (action: ReviewAction) => void,
   ) {
-    const editorTheme: EditorTheme = {
-      borderColor: (s) => this.theme.fg("accent", s),
-      selectList: {
-        selectedPrefix: (t) => this.theme.fg("accent", t),
-        selectedText: (t) => this.theme.fg("accent", t),
-        description: (t) => this.theme.fg("muted", t),
-        scrollInfo: (t) => this.theme.fg("dim", t),
-        noMatch: (t) => this.theme.fg("warning", t),
-      },
-    };
+    const editorTheme = createEditorTheme(this.theme);
     this.editor = new Editor(tui, editorTheme);
     this.editor.onSubmit = (value) => {
       this.submitDraft(value);
     };
+
+    this.filterEditor = new Editor(tui, editorTheme);
+    this.filterEditor.onSubmit = () => {
+      this.jumpToSelectedFile();
+    };
+
+    this.allFileJumpItems = this.snapshot.files.map((file, index) => {
+      const value = `${index}:${file.filePath}`;
+      this.fileIndexByValue.set(value, index);
+      return {
+        value,
+        fileIndex: index,
+        rawLabel: file.displayPath,
+        rawDescription: formatFileJumpDescription(file, this.state),
+        file,
+      };
+    });
+
+    this.fileSelectList = this.createFileSelectList(this.allFileJumpItems.map((item) => ({
+      value: item.value,
+      label: item.rawLabel,
+      description: item.rawDescription,
+    })));
   }
 
   invalidate(): void {
     this.cachedWidth = undefined;
     this.cachedLines = undefined;
+    this.editor.invalidate();
+    this.filterEditor.invalidate();
+    this.fileSelectList.invalidate();
   }
 
   handleInput(data: string): void {
     if (this.composeMode === "compose") {
       this.handleComposeInput(data);
+      return;
+    }
+
+    if (this.composeMode === "jump") {
+      this.handleJumpInput(data);
       return;
     }
 
@@ -669,7 +876,7 @@ class ReviewBrowserComponent {
       return;
     }
 
-    if (data === "?") {
+    if (isHelpToggleKey(data)) {
       this.uiState.showHelp = !this.uiState.showHelp;
       this.refresh();
       return;
@@ -678,6 +885,11 @@ class ReviewBrowserComponent {
     if (data === "w") {
       this.uiState.wrapDiff = !this.uiState.wrapDiff;
       this.refresh();
+      return;
+    }
+
+    if (data === "/" || data === "g") {
+      this.startFileJump();
       return;
     }
 
@@ -778,8 +990,102 @@ class ReviewBrowserComponent {
       return;
     }
 
+    if (isTextInputHelpToggleKey(data)) {
+      this.uiState.showHelp = !this.uiState.showHelp;
+      this.refresh();
+      return;
+    }
+
     this.editor.handleInput(data);
     this.refresh();
+  }
+
+  private handleJumpInput(data: string) {
+    if (matchesKey(data, Key.escape)) {
+      this.cancelFileJump();
+      return;
+    }
+
+    if (isTextInputHelpToggleKey(data)) {
+      this.uiState.showHelp = !this.uiState.showHelp;
+      this.refresh();
+      return;
+    }
+
+    if (matchesKey(data, Key.shift("enter")) || matchesKey(data, Key.tab) || matchesKey(data, Key.shift("tab"))) {
+      return;
+    }
+
+    if (matchesKey(data, Key.enter)) {
+      this.jumpToSelectedFile();
+      return;
+    }
+
+    if (matchesKey(data, Key.down) || matchesKey(data, Key.ctrl("n"))) {
+      this.fileSelectList.handleInput("\x1b[B");
+      this.refresh();
+      return;
+    }
+
+    if (matchesKey(data, Key.up) || matchesKey(data, Key.ctrl("p"))) {
+      this.fileSelectList.handleInput("\x1b[A");
+      this.refresh();
+      return;
+    }
+
+    if (matchesKey(data, Key.pageDown) || matchesKey(data, Key.pageUp)) {
+      this.fileSelectList.handleInput(data);
+      this.refresh();
+      return;
+    }
+
+    this.filterEditor.handleInput(data);
+    this.updateFileJumpFilter();
+    this.refresh();
+  }
+
+  private createFileSelectList(items: SelectItem[], selectedValue?: string): SelectList {
+    const list = new SelectList(items, Math.min(Math.max(this.snapshot.files.length, 1), 8), createEditorTheme(this.theme).selectList, {
+      minPrimaryColumnWidth: 24,
+      maxPrimaryColumnWidth: 80,
+    });
+
+    if (selectedValue) {
+      const selectedIndex = items.findIndex((item) => item.value === selectedValue);
+      if (selectedIndex >= 0) list.setSelectedIndex(selectedIndex);
+    }
+
+    return list;
+  }
+
+  private updateFileJumpFilter() {
+    const filter = this.filterEditor.getText().trim();
+
+    const filteredItems = filter.length === 0
+      ? this.allFileJumpItems.map((item) => ({
+          value: item.value,
+          label: item.rawLabel,
+          description: item.rawDescription,
+        }))
+      : this.allFileJumpItems
+          .map((item): { value: string; label: string; description: string; score: number; basename: string; filePath: string } | null => {
+            const match = scoreFileJumpMatch(filter, item.file);
+            if (match === null) return null;
+
+            return {
+              value: item.value,
+              label: highlightMatchedCharacters(item.rawLabel, match.labelPositions, this.theme),
+              description: highlightMatchedCharacters(item.rawDescription, match.descriptionPositions, this.theme),
+              score: match.score,
+              basename: basenameFromPath(item.file.filePath).toLowerCase(),
+              filePath: item.file.filePath.toLowerCase(),
+            };
+          })
+          .filter((entry): entry is { value: string; label: string; description: string; score: number; basename: string; filePath: string } => entry !== null)
+          .sort((a, b) => b.score - a.score || a.basename.localeCompare(b.basename) || a.filePath.localeCompare(b.filePath))
+          .map(({ value, label, description }) => ({ value, label, description }));
+
+    this.fileSelectList = this.createFileSelectList(filteredItems);
   }
 
   private cancelCompose() {
@@ -787,8 +1093,8 @@ class ReviewBrowserComponent {
     this.draftTarget = undefined;
     this.editingThreadId = undefined;
     this.draftDispatchMode = "batch";
-    this.editor.focused = false;
     this.editor.setText("");
+    this.syncFocusedEditors();
     this.refresh();
   }
 
@@ -805,8 +1111,8 @@ class ReviewBrowserComponent {
     this.draftTarget = target;
     this.editingThreadId = undefined;
     this.draftDispatchMode = "batch";
-    this.editor.focused = this.focused;
     this.editor.setText("");
+    this.syncFocusedEditors();
     this.refresh();
   }
 
@@ -815,9 +1121,48 @@ class ReviewBrowserComponent {
     this.draftTarget = thread.target.kind;
     this.editingThreadId = thread.id;
     this.draftDispatchMode = thread.dispatchMode;
-    this.editor.focused = this.focused;
     this.editor.setText(thread.comment);
+    this.syncFocusedEditors();
     this.refresh();
+  }
+
+  private startFileJump() {
+    if (this.snapshot.files.length === 0) return;
+    this.composeMode = "jump";
+    this.filterEditor.setText("");
+    this.fileSelectList = this.createFileSelectList(
+      this.allFileJumpItems.map((item) => ({ value: item.value, label: item.rawLabel, description: item.rawDescription })),
+      this.allFileJumpItems[clamp(this.uiState.selectedFileIndex, 0, this.snapshot.files.length - 1)]?.value,
+    );
+    this.syncFocusedEditors();
+    this.refresh();
+  }
+
+  private cancelFileJump() {
+    this.composeMode = "browse";
+    this.filterEditor.setText("");
+    this.fileSelectList = this.createFileSelectList(this.allFileJumpItems.map((item) => ({ value: item.value, label: item.rawLabel, description: item.rawDescription })));
+    this.syncFocusedEditors();
+    this.refresh();
+  }
+
+  private jumpToSelectedFile() {
+    const selected = this.fileSelectList.getSelectedItem();
+    if (!selected) {
+      this.refresh();
+      return;
+    }
+
+    const nextFileIndex = this.fileIndexByValue.get(selected.value);
+    if (nextFileIndex === undefined) {
+      this.refresh();
+      return;
+    }
+
+    this.uiState.selectedFileIndex = nextFileIndex;
+    this.uiState.selectedHunkIndex = 0;
+    this.uiState.selectedLineIndex = 0;
+    this.cancelFileJump();
   }
 
   private submitDraft(submittedValue?: string) {
@@ -1077,7 +1422,7 @@ class ReviewBrowserComponent {
     lines.push("");
     const fileHeader = `${theme.fg("accent", `[${this.uiState.selectedFileIndex + 1}/${this.snapshot.files.length}]`)} ${theme.fg("text", file.displayPath)} ${theme.fg(
       "muted",
-      `(+${file.additions} -${file.deletions} • ${file.status})`,
+      `(${formatFileChangeSummary(file)})`,
     )}`;
     lines.push(truncateToWidth(fileHeader, width));
 
@@ -1085,8 +1430,12 @@ class ReviewBrowserComponent {
       lines.push("");
       renderWrapped(theme.fg("muted", file.note ?? "This change has no textual hunks."), width, lines);
       lines.push("");
-      lines.push(...this.buildThreadSectionLines(width, file, undefined, undefined));
-      lines.push(...this.buildComposerLines(width, file, undefined, undefined));
+      const jumpSectionLines = this.buildJumpSectionLines(width);
+      const threadSectionLines = jumpSectionLines.length > 0 ? [] : this.buildThreadSectionLines(width, file, undefined, undefined);
+      const composerLines = jumpSectionLines.length > 0 ? [] : this.buildComposerLines(width, file, undefined, undefined);
+      lines.push(...jumpSectionLines);
+      lines.push(...threadSectionLines);
+      lines.push(...composerLines);
       lines.push(...this.buildFooterLines(width));
       this.cachedWidth = width;
       this.cachedLines = lines;
@@ -1106,12 +1455,13 @@ class ReviewBrowserComponent {
 
     const oldWidth = Math.max(3, String(Math.max(hunk.oldStart + hunk.oldLines, 0)).length);
     const newWidth = Math.max(3, String(Math.max(hunk.newStart + hunk.newLines, 0)).length);
-    const threadSectionLines = this.buildThreadSectionLines(width, file, hunk, line);
-    const composerLines = this.buildComposerLines(width, file, hunk, line);
+    const jumpSectionLines = this.buildJumpSectionLines(width);
+    const threadSectionLines = jumpSectionLines.length > 0 ? [] : this.buildThreadSectionLines(width, file, hunk, line);
+    const composerLines = jumpSectionLines.length > 0 ? [] : this.buildComposerLines(width, file, hunk, line);
     const footerLines = this.buildFooterLines(width);
     // Keep most of the top context visible and leave a small safety margin for pi's own chrome/footer.
     const visibleTopRows = Math.min(lines.length, RESERVED_TOP_CONTEXT_ROWS);
-    const reservedRows = visibleTopRows + 1 + threadSectionLines.length + composerLines.length + footerLines.length + VIEWPORT_SAFETY_ROWS;
+    const reservedRows = visibleTopRows + 1 + jumpSectionLines.length + threadSectionLines.length + composerLines.length + footerLines.length + VIEWPORT_SAFETY_ROWS;
     const availableDiffRows = this.getTerminalRows() - reservedRows;
     const { start: windowStart, end: windowEnd } = this.computeVisibleDiffWindow(hunk, width, oldWidth, newWidth, availableDiffRows);
 
@@ -1134,6 +1484,7 @@ class ReviewBrowserComponent {
     }
 
     lines.push("");
+    lines.push(...jumpSectionLines);
     lines.push(...threadSectionLines);
     lines.push(...composerLines);
     lines.push(...footerLines);
@@ -1169,11 +1520,31 @@ class ReviewBrowserComponent {
     return lines;
   }
 
+  private buildJumpSectionLines(width: number): string[] {
+    if (this.composeMode !== "jump") return [];
+
+    const lines: string[] = [];
+    const theme = this.theme;
+
+    this.syncFocusedEditors();
+    lines.push(truncateToWidth(theme.fg("accent", "Files"), width));
+    lines.push("");
+
+    for (const editorLine of this.filterEditor.render(Math.max(20, width - 2))) {
+      lines.push(truncateToWidth(` ${editorLine}`, width));
+    }
+
+    lines.push("");
+    lines.push(...this.fileSelectList.render(width));
+    lines.push("");
+    return lines;
+  }
+
   private buildComposerLines(width: number, file: DiffFile, hunk: DiffHunk | undefined, line: DiffLine | undefined): string[] {
     if (this.composeMode !== "compose") return [];
 
     const lines: string[] = [];
-    this.editor.focused = this.focused;
+    this.syncFocusedEditors();
     lines.push(truncateToWidth(this.theme.fg("accent", this.editingThreadId ? "Edit comment" : "Comment draft"), width));
 
     const location = this.editingThreadId
@@ -1212,7 +1583,13 @@ class ReviewBrowserComponent {
     const theme = this.theme;
 
     if (!this.uiState.showHelp) {
-      lines.push(truncateToWidth(theme.fg("dim", "? help"), width));
+      const hiddenHelpLabel =
+        this.composeMode === "browse"
+          ? "? help"
+          : this.composeMode === "jump"
+            ? "Alt+H help"
+            : "Alt+H help";
+      lines.push(truncateToWidth(theme.fg("dim", hiddenHelpLabel), width));
       return lines;
     }
 
@@ -1220,7 +1597,13 @@ class ReviewBrowserComponent {
 
     if (this.composeMode === "compose") {
       renderWrapped(theme.fg("dim", "Edit: Enter save • Shift+Enter newline"), width, lines);
-      renderWrapped(theme.fg("dim", "Mode: Tab batch/immediate • Esc cancel • ? hide controls"), width, lines);
+      renderWrapped(theme.fg("dim", "Mode: Tab batch/immediate • Esc cancel • F1 or Alt+H toggle controls"), width, lines);
+      return lines;
+    }
+
+    if (this.composeMode === "jump") {
+      renderWrapped(theme.fg("dim", "Files: type to search • ↑/↓ or Ctrl+N/Ctrl+P move selection • Enter open • Esc cancel"), width, lines);
+      renderWrapped(theme.fg("dim", "F1 or Alt+H toggle controls"), width, lines);
       return lines;
     }
 
@@ -1229,7 +1612,7 @@ class ReviewBrowserComponent {
       width,
       lines,
     );
-    renderWrapped(theme.fg("dim", `View: w wrap ${this.uiState.wrapDiff ? "off" : "on"} • ? hide controls`), width, lines);
+    renderWrapped(theme.fg("dim", `View: w wrap ${this.uiState.wrapDiff ? "off" : "on"} • / or g jump file • ? hide controls`), width, lines);
     renderWrapped(
       theme.fg(
         "dim",
