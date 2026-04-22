@@ -707,12 +707,12 @@ class ReviewBrowserComponent {
       return;
     }
 
-    if (data === "d") {
+    if (data === "d" || matchesKey(data, Key.ctrl("d"))) {
       this.moveHalfPage(1);
       return;
     }
 
-    if (data === "u") {
+    if (data === "u" || matchesKey(data, Key.ctrl("u"))) {
       this.moveHalfPage(-1);
       return;
     }
@@ -1030,21 +1030,6 @@ class ReviewBrowserComponent {
       ),
     );
 
-    if (this.uiState.showHelp) {
-      lines.push("");
-      renderWrapped(theme.fg("dim", "Move: n/p file • [ prev hunk • ] next hunk • j/k line • d/u half-page"), width, lines);
-      renderWrapped(theme.fg("dim", `View: w wrap ${this.uiState.wrapDiff ? "off" : "on"}`), width, lines);
-      renderWrapped(
-        theme.fg(
-          "dim",
-          "Act: c line comment • H hunk comment • F file comment • e or 1-4 edit • x/Backspace delete • s send • r refresh • Esc close",
-        ),
-        width,
-        lines,
-      );
-      lines.push("");
-    }
-
     const oldWidth = Math.max(3, String(Math.max(hunk.oldStart + hunk.oldLines, 0)).length);
     const newWidth = Math.max(3, String(Math.max(hunk.newStart + hunk.newLines, 0)).length);
     const windowStart = Math.max(0, this.uiState.selectedLineIndex - Math.floor(MAX_VISIBLE_DIFF_LINES / 2));
@@ -1135,24 +1120,37 @@ class ReviewBrowserComponent {
       lines.push(truncateToWidth(` ${editorLine}`, width));
     }
     lines.push("");
-    renderWrapped(this.theme.fg("dim", "Edit: Enter save • Shift+Enter newline"), width, lines);
-    renderWrapped(this.theme.fg("dim", "Mode: Tab batch/immediate • Esc cancel"), width, lines);
-    lines.push("");
   }
 
   private renderFooter(lines: string[], width: number) {
-    if (this.composeMode === "compose") {
-      lines.push(truncateToWidth(this.theme.fg("dim", "Edit: Enter save • Shift+Enter newline"), width));
-      lines.push(truncateToWidth(this.theme.fg("dim", "Mode: Tab batch/immediate • Esc cancel • ? shortcuts"), width));
+    const theme = this.theme;
+
+    if (!this.uiState.showHelp) {
+      lines.push(truncateToWidth(theme.fg("dim", "? help"), width));
       return;
     }
 
-    lines.push(truncateToWidth(this.theme.fg("dim", "Move: Tab/Shift+Tab file • [ prev hunk • ] next hunk • ↑↓ line"), width));
-    lines.push(
-      truncateToWidth(
-        this.theme.fg("dim", "Act: c line comment • H hunk comment • F file comment • s send • ? shortcuts"),
-        width,
+    lines.push(truncateToWidth(theme.fg("accent", "Controls"), width));
+
+    if (this.composeMode === "compose") {
+      renderWrapped(theme.fg("dim", "Edit: Enter save • Shift+Enter newline"), width, lines);
+      renderWrapped(theme.fg("dim", "Mode: Tab batch/immediate • Esc cancel • ? hide controls"), width, lines);
+      return;
+    }
+
+    renderWrapped(
+      theme.fg("dim", "Move: Tab/Shift+Tab or n/p file • [ prev hunk • ] next hunk • ↑/↓ or j/k line • d/u or Ctrl+D/Ctrl+U half-page"),
+      width,
+      lines,
+    );
+    renderWrapped(theme.fg("dim", `View: w wrap ${this.uiState.wrapDiff ? "off" : "on"} • ? hide controls`), width, lines);
+    renderWrapped(
+      theme.fg(
+        "dim",
+        "Act: c line comment • H hunk comment • F file comment • e or 1-4 edit • x/Backspace delete • s send • r refresh • Esc/q close",
       ),
+      width,
+      lines,
     );
   }
 }
