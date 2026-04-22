@@ -8,7 +8,10 @@ import { Editor, type EditorTheme, Key, matchesKey, truncateToWidth, visibleWidt
 
 const REVIEW_STATE_TYPE = "interactive-code-review-state";
 const STATUS_KEY = "interactive-code-review";
-const MAX_VISIBLE_DIFF_LINES = 18;
+const DEFAULT_VISIBLE_DIFF_LINES = 18;
+const DEFAULT_TERMINAL_ROWS = 24;
+const RESERVED_TOP_CONTEXT_ROWS = 4;
+const VIEWPORT_SAFETY_ROWS = 3;
 const LINE_CONTEXT_RADIUS = 3;
 const MAX_HUNK_EXCERPT_LINES = 24;
 const RESPONSE_BLOCK_PATTERN = /\[\[thread:([^\]]+)\]\]([\s\S]*?)(?=\n\[\[thread:|$)/g;
@@ -606,6 +609,7 @@ class ReviewBrowserComponent {
   private draftTarget?: ThreadTargetKind;
   private editingThreadId?: string;
   private draftDispatchMode: "batch" | "immediate" = "batch";
+  private lastVisibleDiffLineCount = DEFAULT_VISIBLE_DIFF_LINES;
   private _focused = false;
 
   private refresh(): void {
@@ -707,12 +711,12 @@ class ReviewBrowserComponent {
       return;
     }
 
-    if (data === "d") {
+    if (data === "d" || matchesKey(data, Key.ctrl("d"))) {
       this.moveHalfPage(1);
       return;
     }
 
-    if (data === "u") {
+    if (data === "u" || matchesKey(data, Key.ctrl("u"))) {
       this.moveHalfPage(-1);
       return;
     }
@@ -936,8 +940,78 @@ class ReviewBrowserComponent {
   }
 
   private moveHalfPage(delta: number) {
-    const halfPage = Math.max(1, Math.floor(MAX_VISIBLE_DIFF_LINES / 2));
+    const halfPage = Math.max(1, Math.floor(this.lastVisibleDiffLineCount / 2));
     this.moveLine(delta * halfPage);
+  }
+
+  private getTerminalRows(): number {
+    const rows = this.tui?.terminal?.rows;
+    return typeof rows === "number" && rows > 0 ? rows : DEFAULT_TERMINAL_ROWS;
+  }
+
+  private estimateDiffLineHeight(width: number, oldWidth: number, newWidth: number, diffLine: DiffLine): number {
+    if (!this.uiState.wrapDiff) return 1;
+
+    const prefix = diffLine.kind === "add" ? "+" : diffLine.kind === "del" ? "-" : " ";
+    const color = diffLine.kind === "add" ? "toolDiffAdded" : diffLine.kind === "del" ? "toolDiffRemoved" : "toolDiffContext";
+    const oldCell = `${diffLine.oldLineNumber ?? ""}`.padStart(oldWidth, " ");
+    const newCell = `${diffLine.newLineNumber ?? ""}`.padStart(newWidth, " ");
+    const linePrefix = ` > ${this.theme.fg("dim", oldCell)} ${this.theme.fg("dim", newCell)} ${this.theme.fg("dim", "│")} `;
+    const contentWidth = Math.max(1, width - visibleWidth(linePrefix));
+    return Math.max(1, wrapTextWithAnsi(this.theme.fg(color, `${prefix}${diffLine.text}`), contentWidth).length);
+  }
+
+  private computeVisibleDiffWindow(hunk: DiffHunk, width: number, oldWidth: number, newWidth: number, budgetRows: number): { start: number; end: number } {
+    if (hunk.lines.length === 0) return { start: 0, end: 0 };
+
+    const selectedIndex = clamp(this.uiState.selectedLineIndex, 0, hunk.lines.length - 1);
+    const lineHeights = hunk.lines.map((diffLine) => this.estimateDiffLineHeight(width, oldWidth, newWidth, diffLine));
+    // Don't force a minimum diff height here: when comments/editor/help grow, doing so can push
+    // the overall review UI taller than the terminal viewport.
+    const maxRows = Math.max(1, budgetRows);
+
+    let start = selectedIndex;
+    let end = selectedIndex + 1;
+    let usedRows = lineHeights[selectedIndex] ?? 1;
+
+    const totalRows = (nextStart: number, nextEnd: number, rowsUsed: number) => {
+      return (nextStart > 0 ? 1 : 0) + rowsUsed + (nextEnd < hunk.lines.length ? 1 : 0);
+    };
+
+    while (true) {
+      const distanceAbove = selectedIndex - start;
+      const distanceBelow = end - 1 - selectedIndex;
+      const directions = distanceAbove <= distanceBelow ? (["up", "down"] as const) : (["down", "up"] as const);
+      let expanded = false;
+
+      for (const direction of directions) {
+        if (direction === "up" && start > 0) {
+          const nextStart = start - 1;
+          const nextUsedRows = usedRows + (lineHeights[nextStart] ?? 1);
+          if (totalRows(nextStart, end, nextUsedRows) <= maxRows) {
+            start = nextStart;
+            usedRows = nextUsedRows;
+            expanded = true;
+            break;
+          }
+        }
+
+        if (direction === "down" && end < hunk.lines.length) {
+          const nextEnd = end + 1;
+          const nextUsedRows = usedRows + (lineHeights[end] ?? 1);
+          if (totalRows(start, nextEnd, nextUsedRows) <= maxRows) {
+            end = nextEnd;
+            usedRows = nextUsedRows;
+            expanded = true;
+            break;
+          }
+        }
+      }
+
+      if (!expanded) break;
+    }
+
+    return { start, end };
   }
 
   private renderDiffLine(lines: string[], width: number, oldWidth: number, newWidth: number, diffLine: DiffLine, isSelected: boolean, lineThreads: number) {
@@ -1011,9 +1085,9 @@ class ReviewBrowserComponent {
       lines.push("");
       renderWrapped(theme.fg("muted", file.note ?? "This change has no textual hunks."), width, lines);
       lines.push("");
-      this.renderThreadSection(lines, width, file, undefined, undefined);
-      this.renderComposer(lines, width, file, undefined, undefined);
-      this.renderFooter(lines, width);
+      lines.push(...this.buildThreadSectionLines(width, file, undefined, undefined));
+      lines.push(...this.buildComposerLines(width, file, undefined, undefined));
+      lines.push(...this.buildFooterLines(width));
       this.cachedWidth = width;
       this.cachedLines = lines;
       return lines;
@@ -1030,25 +1104,18 @@ class ReviewBrowserComponent {
       ),
     );
 
-    if (this.uiState.showHelp) {
-      lines.push("");
-      renderWrapped(theme.fg("dim", "Move: n/p file • [ prev hunk • ] next hunk • j/k line • d/u half-page"), width, lines);
-      renderWrapped(theme.fg("dim", `View: w wrap ${this.uiState.wrapDiff ? "off" : "on"}`), width, lines);
-      renderWrapped(
-        theme.fg(
-          "dim",
-          "Act: c line comment • H hunk comment • F file comment • e or 1-4 edit • x/Backspace delete • s send • r refresh • Esc close",
-        ),
-        width,
-        lines,
-      );
-      lines.push("");
-    }
-
     const oldWidth = Math.max(3, String(Math.max(hunk.oldStart + hunk.oldLines, 0)).length);
     const newWidth = Math.max(3, String(Math.max(hunk.newStart + hunk.newLines, 0)).length);
-    const windowStart = Math.max(0, this.uiState.selectedLineIndex - Math.floor(MAX_VISIBLE_DIFF_LINES / 2));
-    const windowEnd = Math.min(hunk.lines.length, windowStart + MAX_VISIBLE_DIFF_LINES);
+    const threadSectionLines = this.buildThreadSectionLines(width, file, hunk, line);
+    const composerLines = this.buildComposerLines(width, file, hunk, line);
+    const footerLines = this.buildFooterLines(width);
+    // Keep most of the top context visible and leave a small safety margin for pi's own chrome/footer.
+    const visibleTopRows = Math.min(lines.length, RESERVED_TOP_CONTEXT_ROWS);
+    const reservedRows = visibleTopRows + 1 + threadSectionLines.length + composerLines.length + footerLines.length + VIEWPORT_SAFETY_ROWS;
+    const availableDiffRows = this.getTerminalRows() - reservedRows;
+    const { start: windowStart, end: windowEnd } = this.computeVisibleDiffWindow(hunk, width, oldWidth, newWidth, availableDiffRows);
+
+    this.lastVisibleDiffLineCount = Math.max(1, windowEnd - windowStart);
 
     if (windowStart > 0) {
       lines.push(truncateToWidth(theme.fg("dim", `… ${windowStart} earlier line${windowStart === 1 ? "" : "s"}`), width));
@@ -1067,17 +1134,17 @@ class ReviewBrowserComponent {
     }
 
     lines.push("");
-
-    this.renderThreadSection(lines, width, file, hunk, line);
-    this.renderComposer(lines, width, file, hunk, line);
-    this.renderFooter(lines, width);
+    lines.push(...threadSectionLines);
+    lines.push(...composerLines);
+    lines.push(...footerLines);
 
     this.cachedWidth = width;
     this.cachedLines = lines;
     return lines;
   }
 
-  private renderThreadSection(lines: string[], width: number, file: DiffFile, hunk: DiffHunk | undefined, line: DiffLine | undefined) {
+  private buildThreadSectionLines(width: number, file: DiffFile, hunk: DiffHunk | undefined, line: DiffLine | undefined): string[] {
+    const lines: string[] = [];
     const theme = this.theme;
     const threads = getThreadsForCurrentView(this.state, file, hunk, line).slice(0, 4);
 
@@ -1085,7 +1152,7 @@ class ReviewBrowserComponent {
     if (threads.length === 0) {
       lines.push(truncateToWidth(theme.fg("dim", "None for this line, hunk, or file."), width));
       lines.push("");
-      return;
+      return lines;
     }
 
     threads.forEach((thread, index) => {
@@ -1099,11 +1166,13 @@ class ReviewBrowserComponent {
     });
 
     lines.push("");
+    return lines;
   }
 
-  private renderComposer(lines: string[], width: number, file: DiffFile, hunk: DiffHunk | undefined, line: DiffLine | undefined) {
-    if (this.composeMode !== "compose") return;
+  private buildComposerLines(width: number, file: DiffFile, hunk: DiffHunk | undefined, line: DiffLine | undefined): string[] {
+    if (this.composeMode !== "compose") return [];
 
+    const lines: string[] = [];
     this.editor.focused = this.focused;
     lines.push(truncateToWidth(this.theme.fg("accent", this.editingThreadId ? "Edit comment" : "Comment draft"), width));
 
@@ -1135,25 +1204,41 @@ class ReviewBrowserComponent {
       lines.push(truncateToWidth(` ${editorLine}`, width));
     }
     lines.push("");
-    renderWrapped(this.theme.fg("dim", "Edit: Enter save • Shift+Enter newline"), width, lines);
-    renderWrapped(this.theme.fg("dim", "Mode: Tab batch/immediate • Esc cancel"), width, lines);
-    lines.push("");
+    return lines;
   }
 
-  private renderFooter(lines: string[], width: number) {
-    if (this.composeMode === "compose") {
-      lines.push(truncateToWidth(this.theme.fg("dim", "Edit: Enter save • Shift+Enter newline"), width));
-      lines.push(truncateToWidth(this.theme.fg("dim", "Mode: Tab batch/immediate • Esc cancel • ? shortcuts"), width));
-      return;
+  private buildFooterLines(width: number): string[] {
+    const lines: string[] = [];
+    const theme = this.theme;
+
+    if (!this.uiState.showHelp) {
+      lines.push(truncateToWidth(theme.fg("dim", "? help"), width));
+      return lines;
     }
 
-    lines.push(truncateToWidth(this.theme.fg("dim", "Move: Tab/Shift+Tab file • [ prev hunk • ] next hunk • ↑↓ line"), width));
-    lines.push(
-      truncateToWidth(
-        this.theme.fg("dim", "Act: c line comment • H hunk comment • F file comment • s send • ? shortcuts"),
-        width,
-      ),
+    lines.push(truncateToWidth(theme.fg("accent", "Controls"), width));
+
+    if (this.composeMode === "compose") {
+      renderWrapped(theme.fg("dim", "Edit: Enter save • Shift+Enter newline"), width, lines);
+      renderWrapped(theme.fg("dim", "Mode: Tab batch/immediate • Esc cancel • ? hide controls"), width, lines);
+      return lines;
+    }
+
+    renderWrapped(
+      theme.fg("dim", "Move: Tab/Shift+Tab or n/p file • [ prev hunk • ] next hunk • ↑/↓ or j/k line • d/u or Ctrl+D/Ctrl+U half-page"),
+      width,
+      lines,
     );
+    renderWrapped(theme.fg("dim", `View: w wrap ${this.uiState.wrapDiff ? "off" : "on"} • ? hide controls`), width, lines);
+    renderWrapped(
+      theme.fg(
+        "dim",
+        "Act: c line comment • H hunk comment • F file comment • e or 1-4 edit • x/Backspace delete • s send • r refresh • Esc/q close",
+      ),
+      width,
+      lines,
+    );
+    return lines;
   }
 }
 

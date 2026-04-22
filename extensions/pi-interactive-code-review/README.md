@@ -35,7 +35,8 @@ Optionally review against a specific ref instead of the detected default branch:
 
 ## Controls
 
-Inside the review UI:
+Inside the review UI, press `?` to show the full control reference in the lower section.
+
 
 ### Movement
 
@@ -48,7 +49,7 @@ Inside the review UI:
 
 - `n` / `p` - next/previous changed file
 - `j` / `k` - move through lines in the current hunk
-- `d` / `u` - move down/up half a page in the current hunk
+- `d` / `u` or `Ctrl+D` / `Ctrl+U` - move down/up half a page in the current hunk
 
 ### Actions
 
