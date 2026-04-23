@@ -1486,18 +1486,111 @@ class ReviewBrowserComponent {
     this.refresh();
   }
 
+  private selectHunk(hunkIndex: number, linePosition: "start" | "end" = "start"): boolean {
+    const file = currentFile(this.snapshot, this.uiState);
+    if (!file || file.hunks.length === 0) return false;
+
+    const nextHunkIndex = clamp(hunkIndex, 0, file.hunks.length - 1);
+    const nextHunk = file.hunks[nextHunkIndex]!;
+    this.uiState.selectedHunkIndex = nextHunkIndex;
+    this.uiState.selectedLineIndex = linePosition === "end" ? Math.max(0, nextHunk.lines.length - 1) : 0;
+    return true;
+  }
+
+  private findFileWithHunks(startFileIndex: number, delta: -1 | 1): number | undefined {
+    for (let fileIndex = startFileIndex + delta; fileIndex >= 0 && fileIndex < this.snapshot.files.length; fileIndex += delta) {
+      if ((this.snapshot.files[fileIndex]?.hunks.length ?? 0) > 0) return fileIndex;
+    }
+    return undefined;
+  }
+
   private moveHunk(delta: number) {
     const file = currentFile(this.snapshot, this.uiState);
-    if (!file || file.hunks.length === 0) return;
-    this.uiState.selectedHunkIndex = clamp(this.uiState.selectedHunkIndex + delta, 0, file.hunks.length - 1);
-    this.uiState.selectedLineIndex = 0;
+    if (!file || file.hunks.length === 0 || delta === 0) return;
+
+    const fileIndex = clamp(this.uiState.selectedFileIndex, 0, this.snapshot.files.length - 1);
+    const nextHunkIndex = this.uiState.selectedHunkIndex + delta;
+    if (nextHunkIndex >= 0 && nextHunkIndex < file.hunks.length) {
+      this.selectHunk(nextHunkIndex, "start");
+      this.refresh();
+      return;
+    }
+
+    const nextFileIndex = this.findFileWithHunks(fileIndex, delta > 0 ? 1 : -1);
+    if (nextFileIndex === undefined) return;
+
+    this.uiState.selectedFileIndex = nextFileIndex;
+    const targetFile = this.snapshot.files[nextFileIndex]!;
+    const targetHunkIndex = delta > 0 ? 0 : Math.max(0, targetFile.hunks.length - 1);
+    this.selectHunk(targetHunkIndex, "start");
     this.refresh();
   }
 
   private moveLine(delta: number) {
-    const hunk = currentHunk(this.snapshot, this.uiState);
-    if (!hunk || hunk.lines.length === 0) return;
-    this.uiState.selectedLineIndex = clamp(this.uiState.selectedLineIndex + delta, 0, hunk.lines.length - 1);
+    const file = currentFile(this.snapshot, this.uiState);
+    if (!file || file.hunks.length === 0 || delta === 0) return;
+
+    let fileIndex = clamp(this.uiState.selectedFileIndex, 0, this.snapshot.files.length - 1);
+    let hunkIndex = clamp(this.uiState.selectedHunkIndex, 0, file.hunks.length - 1);
+    let hunk = file.hunks[hunkIndex]!;
+    let lineIndex = clamp(this.uiState.selectedLineIndex, 0, Math.max(0, hunk.lines.length - 1));
+    let remaining = delta;
+
+    while (remaining !== 0) {
+      const currentFileEntry = this.snapshot.files[fileIndex]!;
+      hunk = currentFileEntry.hunks[hunkIndex]!;
+      const maxLineIndex = Math.max(0, hunk.lines.length - 1);
+
+      if (remaining > 0) {
+        if (lineIndex < maxLineIndex) {
+          const step = Math.min(remaining, maxLineIndex - lineIndex);
+          lineIndex += step;
+          remaining -= step;
+          continue;
+        }
+
+        if (hunkIndex < currentFileEntry.hunks.length - 1) {
+          hunkIndex += 1;
+          lineIndex = 0;
+          remaining -= 1;
+          continue;
+        }
+
+        const nextFileIndex = this.findFileWithHunks(fileIndex, 1);
+        if (nextFileIndex === undefined) break;
+        fileIndex = nextFileIndex;
+        hunkIndex = 0;
+        lineIndex = 0;
+        remaining -= 1;
+        continue;
+      }
+
+      if (lineIndex > 0) {
+        const step = Math.min(-remaining, lineIndex);
+        lineIndex -= step;
+        remaining += step;
+        continue;
+      }
+
+      if (hunkIndex > 0) {
+        hunkIndex -= 1;
+        lineIndex = Math.max(0, this.snapshot.files[fileIndex]!.hunks[hunkIndex]!.lines.length - 1);
+        remaining += 1;
+        continue;
+      }
+
+      const previousFileIndex = this.findFileWithHunks(fileIndex, -1);
+      if (previousFileIndex === undefined) break;
+      fileIndex = previousFileIndex;
+      const previousFile = this.snapshot.files[fileIndex]!;
+      hunkIndex = Math.max(0, previousFile.hunks.length - 1);
+      lineIndex = Math.max(0, previousFile.hunks[hunkIndex]!.lines.length - 1);
+      remaining += 1;
+    }
+
+    this.uiState.selectedFileIndex = fileIndex;
+    this.uiState.selectedHunkIndex = hunkIndex;
+    this.uiState.selectedLineIndex = lineIndex;
     this.refresh();
   }
 
@@ -1620,6 +1713,52 @@ class ReviewBrowserComponent {
     });
   }
 
+  private buildAdjacentNavigationIndicator(width: number, direction: "up" | "down"): string | undefined {
+    const fileIndex = clamp(this.uiState.selectedFileIndex, 0, this.snapshot.files.length - 1);
+    const file = this.snapshot.files[fileIndex];
+    if (!file || file.hunks.length === 0) return undefined;
+
+    const currentHunkIndex = clamp(this.uiState.selectedHunkIndex, 0, file.hunks.length - 1);
+    const targetHunkIndex = direction === "up" ? currentHunkIndex - 1 : currentHunkIndex + 1;
+    const theme = this.theme;
+
+    if (targetHunkIndex >= 0 && targetHunkIndex < file.hunks.length) {
+      const targetHunk = file.hunks[targetHunkIndex]!;
+      const remainingHunks = direction === "up" ? currentHunkIndex : file.hunks.length - currentHunkIndex - 1;
+      const keyHint = direction === "up" ? "[ prev hunk" : "] next hunk";
+      const location = direction === "up" ? "above" : "below";
+      const parts = [
+        theme.fg("accent", direction === "up" ? "↑" : "↓"),
+        theme.fg("accent", `${remainingHunks} ${remainingHunks === 1 ? "hunk" : "hunks"} ${location}`),
+        theme.fg("muted", keyHint),
+        theme.fg("muted", targetHunk.header),
+      ];
+
+      const threadCount = countThreadsForHunk(this.state, file, targetHunk);
+      if (threadCount > 0) parts.push(theme.fg("warning", formatCount("thread", threadCount)));
+
+      return truncateToWidth(parts.join(theme.fg("dim", " • ")), width);
+    }
+
+    const targetFileIndex = this.findFileWithHunks(fileIndex, direction === "up" ? -1 : 1);
+    if (targetFileIndex === undefined) return undefined;
+
+    const targetFile = this.snapshot.files[targetFileIndex]!;
+    const targetFileHunkIndex = direction === "up" ? Math.max(0, targetFile.hunks.length - 1) : 0;
+    const parts = [
+      theme.fg("accent", direction === "up" ? "↑" : "↓"),
+      theme.fg("accent", direction === "up" ? "previous file" : "next file"),
+      theme.fg("muted", direction === "up" ? "[ prev hunk" : "] next hunk"),
+      theme.fg("text", `[${targetFileIndex + 1}/${this.snapshot.files.length}] ${targetFile.displayPath}`),
+      theme.fg("muted", `Hunk ${targetFileHunkIndex + 1}/${targetFile.hunks.length}`),
+    ];
+
+    const threadCount = countThreadsForFile(this.state, targetFile);
+    if (threadCount > 0) parts.push(theme.fg("warning", formatCount("thread", threadCount)));
+
+    return truncateToWidth(parts.join(theme.fg("dim", " • ")), width);
+  }
+
   render(width: number): string[] {
     if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
 
@@ -1677,15 +1816,11 @@ class ReviewBrowserComponent {
     }
 
     lines.push("");
+    const currentHunkIndex = clamp(this.uiState.selectedHunkIndex, 0, file.hunks.length - 1);
     const hunkThreadCount = countThreadsForHunk(this.state, file, hunk);
-    lines.push(
-      truncateToWidth(
-        `${theme.fg("accent", `Hunk ${this.uiState.selectedHunkIndex + 1}/${file.hunks.length}`)} ${theme.fg("muted", hunk.header)}${
-          hunkThreadCount > 0 ? ` ${theme.fg("warning", `• ${formatCount("thread", hunkThreadCount)}`)}` : ""
-        }`,
-        width,
-      ),
-    );
+    const hunkHeaderParts = [theme.fg("accent", `Hunk ${currentHunkIndex + 1}/${file.hunks.length}`), theme.fg("muted", hunk.header)];
+    if (hunkThreadCount > 0) hunkHeaderParts.push(theme.fg("warning", formatCount("thread", hunkThreadCount)));
+    lines.push(truncateToWidth(hunkHeaderParts.join(theme.fg("dim", " • ")), width));
 
     const oldWidth = Math.max(3, String(Math.max(hunk.oldStart + hunk.oldLines, 0)).length);
     const newWidth = Math.max(3, String(Math.max(hunk.newStart + hunk.newLines, 0)).length);
@@ -1696,14 +1831,26 @@ class ReviewBrowserComponent {
     const composerLines = modalSectionLines.length > 0 ? [] : this.buildComposerLines(width, file, hunk, line);
     const footerLines = this.buildFooterLines(width);
     const searchLineMatches = this.getSearchLineMatches(file);
-    const currentHunkIndex = clamp(this.uiState.selectedHunkIndex, 0, file.hunks.length - 1);
+    const previousHunkIndicator = this.buildAdjacentNavigationIndicator(width, "up");
+    const nextHunkIndicator = this.buildAdjacentNavigationIndicator(width, "down");
     // Keep most of the top context visible and leave a small safety margin for pi's own chrome/footer.
     const visibleTopRows = Math.min(lines.length, RESERVED_TOP_CONTEXT_ROWS);
-    const reservedRows = visibleTopRows + 1 + modalSectionLines.length + threadSectionLines.length + composerLines.length + footerLines.length + VIEWPORT_SAFETY_ROWS;
+    const reservedRows =
+      visibleTopRows +
+      1 +
+      (previousHunkIndicator ? 1 : 0) +
+      (nextHunkIndicator ? 1 : 0) +
+      modalSectionLines.length +
+      threadSectionLines.length +
+      composerLines.length +
+      footerLines.length +
+      VIEWPORT_SAFETY_ROWS;
     const availableDiffRows = this.getTerminalRows() - reservedRows;
     const { start: windowStart, end: windowEnd } = this.computeVisibleDiffWindow(hunk, width, oldWidth, newWidth, availableDiffRows);
 
     this.lastVisibleDiffLineCount = Math.max(1, windowEnd - windowStart);
+
+    if (previousHunkIndicator) lines.push(previousHunkIndicator);
 
     if (windowStart > 0) {
       lines.push(truncateToWidth(theme.fg("dim", `… ${windowStart} earlier line${windowStart === 1 ? "" : "s"}`), width));
@@ -1721,6 +1868,8 @@ class ReviewBrowserComponent {
       const remaining = hunk.lines.length - windowEnd;
       lines.push(truncateToWidth(theme.fg("dim", `… ${remaining} more line${remaining === 1 ? "" : "s"}`), width));
     }
+
+    if (nextHunkIndicator) lines.push(nextHunkIndicator);
 
     lines.push("");
     lines.push(...modalSectionLines);
@@ -1879,7 +2028,7 @@ class ReviewBrowserComponent {
     }
 
     renderWrapped(
-      theme.fg("dim", "Move: Tab/Shift+Tab file • [ prev hunk • ] next hunk • ↑/↓ or j/k line • d/u or Ctrl+D/Ctrl+U half-page"),
+      theme.fg("dim", "Move: Tab/Shift+Tab file • [/] hunk (crosses files) • ↑/↓ or j/k line (crosses hunks/files) • d/u or Ctrl+D/Ctrl+U half-page"),
       width,
       lines,
     );
