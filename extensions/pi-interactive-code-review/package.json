@@ -1,6 +1,6 @@
 {
   "name": "@haphazarddev/pi-interactive-code-review",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "A pi extension for interactive code review against your default branch, including uncommitted changes, with line or hunk comments, batching, and inline agent responses.",
   "type": "module",
   "license": "MIT",

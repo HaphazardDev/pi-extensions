@@ -1,5 +1,11 @@
 # @haphazarddev/pi-interactive-code-review
 
+## 0.1.3
+
+### Patch Changes
+
+- db57a4a: Add a searchable changed-file picker to `/review` with fuzzy filename matching, per-file change summaries, match highlighting, and direct keyboard navigation into the diff viewer. Also add in-file diff search with highlighted matches and next/previous match navigation.
+
 ## 0.1.2
 
 ### Patch Changes
