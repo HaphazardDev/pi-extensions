@@ -41,15 +41,15 @@ Inside the review UI, press `?` to show the full control reference in the lower 
 ### Movement
 
 - `Tab` / `Shift+Tab` - next/previous changed file
-- `[` - previous hunk
-- `]` - next hunk
-- `↑` / `↓` - move through lines in the current hunk
+- `[` - previous hunk, automatically moving to the previous file when you're already at the first hunk
+- `]` - next hunk, automatically moving to the next file when you're already at the last hunk
+- `↑` / `↓` - move through lines, automatically crossing into the previous/next hunk or file at the boundaries
 
 ### Extra shortcuts shown in `?` help
 
 - `n` / `p` - next/previous changed file when diff search is not active
-- `j` / `k` - move through lines in the current hunk
-- `d` / `u` or `Ctrl+D` / `Ctrl+U` - move down/up half a page in the current hunk
+- `j` / `k` - move through lines, automatically crossing hunk and file boundaries
+- `d` / `u` or `Ctrl+D` / `Ctrl+U` - move down/up half a page, including across adjacent hunks and files
 
 ### Actions
 
@@ -100,7 +100,7 @@ While the inline comment editor is open:
 ## Review flow
 
 1. Open `/review`
-2. Navigate through the diff file by file, press `g` to jump through a fuzzy searchable file list with `+added` / `-removed` summaries, or press `/` to search inside the current file diff
+2. Navigate through the diff file by file, use the hunk banners and `Hunk x/y • ↑/↓ ...` indicators to see when a file has more hunks above or below, and use the top/bottom navigation banners to see when `[` / `]` will continue into the previous/next file, press `g` to jump through a fuzzy searchable file list with `+added` / `-removed` summaries, or press `/` to search inside the current file diff
 3. Add comments/questions inline while still seeing the diff above the editor
 4. Use `Tab` in the inline editor to choose either:
    - **batch** to queue the thread
