@@ -135,6 +135,12 @@ interface FileJumpMatch {
   descriptionPositions: number[];
 }
 
+interface DiffSearchMatch {
+  hunkIndex: number;
+  lineIndex: number;
+  positions: number[];
+}
+
 type ReviewAction =
   | { type: "close" }
   | { type: "refresh" }
@@ -746,6 +752,39 @@ function highlightMatchedCharacters(text: string, positions: number[], theme: Th
   return output;
 }
 
+function findSubstringMatchPositions(text: string, query: string): number[][] {
+  if (!query) return [];
+
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const matches: number[][] = [];
+  let searchIndex = 0;
+
+  while (searchIndex <= lowerText.length - lowerQuery.length) {
+    const matchIndex = lowerText.indexOf(lowerQuery, searchIndex);
+    if (matchIndex < 0) break;
+    matches.push(contiguousPositions(matchIndex, lowerQuery.length));
+    searchIndex = matchIndex + Math.max(1, lowerQuery.length);
+  }
+
+  return matches;
+}
+
+function findDiffSearchMatches(file: DiffFile | undefined, query: string): DiffSearchMatch[] {
+  if (!file || !query.trim()) return [];
+
+  const matches: DiffSearchMatch[] = [];
+  file.hunks.forEach((hunk, hunkIndex) => {
+    hunk.lines.forEach((line, lineIndex) => {
+      for (const positions of findSubstringMatchPositions(line.text, query.trim())) {
+        matches.push({ hunkIndex, lineIndex, positions });
+      }
+    });
+  });
+
+  return matches;
+}
+
 function scoreFileJumpMatch(query: string, file: DiffFile): FileJumpMatch | null {
   const terms = query.toLowerCase().split(/\s+/).filter((term) => term.length > 0);
   if (terms.length === 0) {
@@ -782,13 +821,16 @@ class ReviewBrowserComponent {
   private cachedLines?: string[];
   private readonly editor: Editor;
   private readonly filterEditor: Editor;
+  private readonly searchEditor: Editor;
   private fileSelectList: SelectList;
   private readonly allFileJumpItems: FileJumpItem[] = [];
   private readonly fileIndexByValue = new Map<string, number>();
-  private composeMode: "browse" | "compose" | "jump" = "browse";
+  private composeMode: "browse" | "compose" | "jump" | "search" = "browse";
   private draftTarget?: ThreadTargetKind;
   private editingThreadId?: string;
   private draftDispatchMode: "batch" | "immediate" = "batch";
+  private searchQuery = "";
+  private searchMatchIndex = 0;
   private lastVisibleDiffLineCount = DEFAULT_VISIBLE_DIFF_LINES;
   private _focused = false;
 
@@ -800,6 +842,7 @@ class ReviewBrowserComponent {
   private syncFocusedEditors(): void {
     this.editor.focused = this._focused && this.composeMode === "compose";
     this.filterEditor.focused = this._focused && this.composeMode === "jump";
+    this.searchEditor.focused = this._focused && this.composeMode === "search";
   }
 
   get focused(): boolean {
@@ -830,6 +873,11 @@ class ReviewBrowserComponent {
       this.jumpToSelectedFile();
     };
 
+    this.searchEditor = new Editor(tui, editorTheme);
+    this.searchEditor.onSubmit = () => {
+      this.acceptDiffSearch();
+    };
+
     this.allFileJumpItems = this.snapshot.files.map((file, index) => {
       const value = `${index}:${file.filePath}`;
       this.fileIndexByValue.set(value, index);
@@ -854,6 +902,7 @@ class ReviewBrowserComponent {
     this.cachedLines = undefined;
     this.editor.invalidate();
     this.filterEditor.invalidate();
+    this.searchEditor.invalidate();
     this.fileSelectList.invalidate();
   }
 
@@ -865,6 +914,11 @@ class ReviewBrowserComponent {
 
     if (this.composeMode === "jump") {
       this.handleJumpInput(data);
+      return;
+    }
+
+    if (this.composeMode === "search") {
+      this.handleSearchInput(data);
       return;
     }
 
@@ -888,8 +942,25 @@ class ReviewBrowserComponent {
       return;
     }
 
-    if (data === "/" || data === "g") {
+    if (data === "/") {
+      this.startDiffSearch();
+      return;
+    }
+
+    if (data === "g") {
       this.startFileJump();
+      return;
+    }
+
+    if (this.searchQuery && data === "n") {
+      this.moveSearchMatch(1);
+      this.refresh();
+      return;
+    }
+
+    if (this.searchQuery && data === "N") {
+      this.moveSearchMatch(-1);
+      this.refresh();
       return;
     }
 
@@ -1044,6 +1115,45 @@ class ReviewBrowserComponent {
     this.refresh();
   }
 
+  private handleSearchInput(data: string) {
+    if (matchesKey(data, Key.escape)) {
+      this.setSearchQueryFromEditor(false);
+      this.closeDiffSearch();
+      return;
+    }
+
+    if (isTextInputHelpToggleKey(data)) {
+      this.uiState.showHelp = !this.uiState.showHelp;
+      this.refresh();
+      return;
+    }
+
+    if (matchesKey(data, Key.shift("enter")) || matchesKey(data, Key.tab) || matchesKey(data, Key.shift("tab"))) {
+      return;
+    }
+
+    if (matchesKey(data, Key.enter)) {
+      this.acceptDiffSearch();
+      return;
+    }
+
+    if (matchesKey(data, Key.down) || matchesKey(data, Key.ctrl("n"))) {
+      this.moveSearchMatch(1);
+      this.refresh();
+      return;
+    }
+
+    if (matchesKey(data, Key.up) || matchesKey(data, Key.ctrl("p"))) {
+      this.moveSearchMatch(-1);
+      this.refresh();
+      return;
+    }
+
+    this.searchEditor.handleInput(data);
+    this.setSearchQueryFromEditor();
+    this.refresh();
+  }
+
   private createFileSelectList(items: SelectItem[], selectedValue?: string): SelectList {
     const list = new SelectList(items, Math.min(Math.max(this.snapshot.files.length, 1), 8), createEditorTheme(this.theme).selectList, {
       minPrimaryColumnWidth: 24,
@@ -1086,6 +1196,113 @@ class ReviewBrowserComponent {
           .map(({ value, label, description }) => ({ value, label, description }));
 
     this.fileSelectList = this.createFileSelectList(filteredItems);
+  }
+
+  private getCurrentSearchMatches(): DiffSearchMatch[] {
+    return findDiffSearchMatches(currentFile(this.snapshot, this.uiState), this.searchQuery);
+  }
+
+  private setSearchQueryFromEditor(resetIndex = true) {
+    this.searchQuery = this.searchEditor.getText().trim();
+    if (resetIndex) this.searchMatchIndex = 0;
+  }
+
+  private getCurrentSearchMatch(): DiffSearchMatch | undefined {
+    const matches = this.getCurrentSearchMatches();
+    if (matches.length === 0) return undefined;
+    this.searchMatchIndex = clamp(this.searchMatchIndex, 0, matches.length - 1);
+    return matches[this.searchMatchIndex];
+  }
+
+  private moveSearchMatch(delta: number) {
+    const matches = this.getCurrentSearchMatches();
+    if (matches.length === 0) return;
+    this.searchMatchIndex = (this.searchMatchIndex + delta + matches.length) % matches.length;
+    this.jumpToCurrentSearchMatch();
+  }
+
+  private jumpToCurrentSearchMatch(): boolean {
+    const matches = this.getCurrentSearchMatches();
+    if (matches.length === 0) return false;
+
+    this.searchMatchIndex = clamp(this.searchMatchIndex, 0, matches.length - 1);
+    const match = matches[this.searchMatchIndex]!;
+    this.uiState.selectedHunkIndex = match.hunkIndex;
+    this.uiState.selectedLineIndex = match.lineIndex;
+    return true;
+  }
+
+  private startDiffSearch() {
+    this.composeMode = "search";
+    this.searchEditor.setText(this.searchQuery);
+    this.syncFocusedEditors();
+    this.refresh();
+  }
+
+  private closeDiffSearch() {
+    this.composeMode = "browse";
+    this.searchEditor.setText(this.searchQuery);
+    this.syncFocusedEditors();
+    this.refresh();
+  }
+
+  private acceptDiffSearch() {
+    this.setSearchQueryFromEditor(false);
+    this.jumpToCurrentSearchMatch();
+    this.closeDiffSearch();
+  }
+
+  private renderSearchHighlightedText(
+    text: string,
+    positions: number[][],
+    activeMatchIndex: number | undefined,
+    color: Parameters<Theme["fg"]>[0],
+  ): string {
+    if (positions.length === 0) return this.theme.fg(color, text);
+
+    const allPositions = new Set<number>();
+    positions.forEach((matchPositions) => matchPositions.forEach((position) => allPositions.add(position)));
+    const activePositions = activeMatchIndex === undefined ? new Set<number>() : new Set(positions[activeMatchIndex] ?? []);
+
+    let output = "";
+    let current = "";
+    let state: "normal" | "match" | "active" = "normal";
+
+    const flush = () => {
+      if (!current) return;
+      if (state === "active") output += this.theme.fg("accent", this.theme.bold(current));
+      else if (state === "match") output += this.theme.fg("warning", this.theme.bold(current));
+      else output += this.theme.fg(color, current);
+      current = "";
+    };
+
+    for (let i = 0; i < text.length; i++) {
+      const nextState = activePositions.has(i) ? "active" : allPositions.has(i) ? "match" : "normal";
+      if (current.length > 0 && nextState !== state) flush();
+      state = nextState;
+      current += text[i];
+    }
+
+    flush();
+    return output;
+  }
+
+  private getSearchLineMatches(file: DiffFile | undefined): Map<string, { positions: number[][]; activeMatchIndex?: number }> {
+    const lineMatches = new Map<string, { positions: number[][]; activeMatchIndex?: number }>();
+    if (!file || !this.searchQuery) return lineMatches;
+
+    const matches = this.getCurrentSearchMatches();
+    const activeMatch = matches.length === 0 ? undefined : matches[clamp(this.searchMatchIndex, 0, matches.length - 1)];
+
+    matches.forEach((match) => {
+      const key = `${match.hunkIndex}:${match.lineIndex}`;
+      const entry = lineMatches.get(key) ?? { positions: [] };
+      if (activeMatch === match) entry.activeMatchIndex = entry.positions.length;
+      entry.positions.push(match.positions);
+      lineMatches.set(key, entry);
+    });
+
+    return lineMatches;
   }
 
   private cancelCompose() {
@@ -1359,7 +1576,16 @@ class ReviewBrowserComponent {
     return { start, end };
   }
 
-  private renderDiffLine(lines: string[], width: number, oldWidth: number, newWidth: number, diffLine: DiffLine, isSelected: boolean, lineThreads: number) {
+  private renderDiffLine(
+    lines: string[],
+    width: number,
+    oldWidth: number,
+    newWidth: number,
+    diffLine: DiffLine,
+    isSelected: boolean,
+    lineThreads: number,
+    searchLineMatch?: { positions: number[][]; activeMatchIndex?: number },
+  ) {
     const theme = this.theme;
     const marker = lineThreads > 0 ? theme.fg("warning", "●") : theme.fg("dim", "·");
     const pointer = isSelected ? theme.fg("accent", ">") : " ";
@@ -1369,10 +1595,16 @@ class ReviewBrowserComponent {
     const blankNewCell = " ".repeat(newWidth);
     const prefix = diffLine.kind === "add" ? "+" : diffLine.kind === "del" ? "-" : " ";
     const color = diffLine.kind === "add" ? "toolDiffAdded" : diffLine.kind === "del" ? "toolDiffRemoved" : "toolDiffContext";
+    const highlightedText = this.renderSearchHighlightedText(
+      `${prefix}${diffLine.text}`,
+      (searchLineMatch?.positions ?? []).map((positions) => positions.map((position) => position + 1)),
+      searchLineMatch?.activeMatchIndex,
+      color,
+    );
     const linePrefix = `${pointer}${marker} ${theme.fg("dim", oldCell)} ${theme.fg("dim", newCell)} ${theme.fg("dim", "│")} `;
 
     if (!this.uiState.wrapDiff) {
-      const raw = `${linePrefix}${theme.fg(color, `${prefix}${diffLine.text}`)}`;
+      const raw = `${linePrefix}${highlightedText}`;
       const rendered = truncateToWidth(raw, width);
       lines.push(isSelected ? theme.bg("selectedBg", rendered) : rendered);
       return;
@@ -1380,7 +1612,7 @@ class ReviewBrowserComponent {
 
     const continuationPrefix = `  ${theme.fg("dim", blankOldCell)} ${theme.fg("dim", blankNewCell)} ${theme.fg("dim", "│")} `;
     const contentWidth = Math.max(1, width - visibleWidth(linePrefix));
-    const wrapped = wrapTextWithAnsi(theme.fg(color, `${prefix}${diffLine.text}`), contentWidth);
+    const wrapped = wrapTextWithAnsi(highlightedText, contentWidth);
 
     wrapped.forEach((segment, index) => {
       const rendered = truncateToWidth(`${index === 0 ? linePrefix : continuationPrefix}${segment}`, width, "");
@@ -1431,9 +1663,11 @@ class ReviewBrowserComponent {
       renderWrapped(theme.fg("muted", file.note ?? "This change has no textual hunks."), width, lines);
       lines.push("");
       const jumpSectionLines = this.buildJumpSectionLines(width);
-      const threadSectionLines = jumpSectionLines.length > 0 ? [] : this.buildThreadSectionLines(width, file, undefined, undefined);
-      const composerLines = jumpSectionLines.length > 0 ? [] : this.buildComposerLines(width, file, undefined, undefined);
-      lines.push(...jumpSectionLines);
+      const searchSectionLines = this.buildSearchSectionLines(width);
+      const modalSectionLines = jumpSectionLines.length > 0 ? jumpSectionLines : searchSectionLines;
+      const threadSectionLines = modalSectionLines.length > 0 ? [] : this.buildThreadSectionLines(width, file, undefined, undefined);
+      const composerLines = modalSectionLines.length > 0 ? [] : this.buildComposerLines(width, file, undefined, undefined);
+      lines.push(...modalSectionLines);
       lines.push(...threadSectionLines);
       lines.push(...composerLines);
       lines.push(...this.buildFooterLines(width));
@@ -1456,12 +1690,16 @@ class ReviewBrowserComponent {
     const oldWidth = Math.max(3, String(Math.max(hunk.oldStart + hunk.oldLines, 0)).length);
     const newWidth = Math.max(3, String(Math.max(hunk.newStart + hunk.newLines, 0)).length);
     const jumpSectionLines = this.buildJumpSectionLines(width);
-    const threadSectionLines = jumpSectionLines.length > 0 ? [] : this.buildThreadSectionLines(width, file, hunk, line);
-    const composerLines = jumpSectionLines.length > 0 ? [] : this.buildComposerLines(width, file, hunk, line);
+    const searchSectionLines = this.buildSearchSectionLines(width);
+    const modalSectionLines = jumpSectionLines.length > 0 ? jumpSectionLines : searchSectionLines;
+    const threadSectionLines = modalSectionLines.length > 0 ? [] : this.buildThreadSectionLines(width, file, hunk, line);
+    const composerLines = modalSectionLines.length > 0 ? [] : this.buildComposerLines(width, file, hunk, line);
     const footerLines = this.buildFooterLines(width);
+    const searchLineMatches = this.getSearchLineMatches(file);
+    const currentHunkIndex = clamp(this.uiState.selectedHunkIndex, 0, file.hunks.length - 1);
     // Keep most of the top context visible and leave a small safety margin for pi's own chrome/footer.
     const visibleTopRows = Math.min(lines.length, RESERVED_TOP_CONTEXT_ROWS);
-    const reservedRows = visibleTopRows + 1 + jumpSectionLines.length + threadSectionLines.length + composerLines.length + footerLines.length + VIEWPORT_SAFETY_ROWS;
+    const reservedRows = visibleTopRows + 1 + modalSectionLines.length + threadSectionLines.length + composerLines.length + footerLines.length + VIEWPORT_SAFETY_ROWS;
     const availableDiffRows = this.getTerminalRows() - reservedRows;
     const { start: windowStart, end: windowEnd } = this.computeVisibleDiffWindow(hunk, width, oldWidth, newWidth, availableDiffRows);
 
@@ -1475,7 +1713,8 @@ class ReviewBrowserComponent {
       const diffLine = hunk.lines[i]!;
       const isSelected = i === this.uiState.selectedLineIndex;
       const lineThreads = countThreadsForLine(this.state, file, hunk, diffLine);
-      this.renderDiffLine(lines, width, oldWidth, newWidth, diffLine, isSelected, lineThreads);
+      const searchLineMatch = searchLineMatches.get(`${currentHunkIndex}:${i}`);
+      this.renderDiffLine(lines, width, oldWidth, newWidth, diffLine, isSelected, lineThreads, searchLineMatch);
     }
 
     if (windowEnd < hunk.lines.length) {
@@ -1484,7 +1723,7 @@ class ReviewBrowserComponent {
     }
 
     lines.push("");
-    lines.push(...jumpSectionLines);
+    lines.push(...modalSectionLines);
     lines.push(...threadSectionLines);
     lines.push(...composerLines);
     lines.push(...footerLines);
@@ -1536,6 +1775,32 @@ class ReviewBrowserComponent {
 
     lines.push("");
     lines.push(...this.fileSelectList.render(width));
+    lines.push("");
+    return lines;
+  }
+
+  private buildSearchSectionLines(width: number): string[] {
+    if (this.composeMode !== "search") return [];
+
+    const lines: string[] = [];
+    const theme = this.theme;
+    const matches = this.getCurrentSearchMatches();
+    const currentMatchNumber = matches.length === 0 ? 0 : clamp(this.searchMatchIndex, 0, matches.length - 1) + 1;
+    const countText =
+      matches.length === 0
+        ? theme.fg("warning", "No matches")
+        : theme.fg("muted", `${currentMatchNumber}/${matches.length} matches`);
+
+    this.syncFocusedEditors();
+    lines.push(truncateToWidth(theme.fg("accent", "Search"), width));
+    lines.push("");
+
+    for (const editorLine of this.searchEditor.render(Math.max(20, width - 2))) {
+      lines.push(truncateToWidth(` ${editorLine}`, width));
+    }
+
+    lines.push("");
+    lines.push(truncateToWidth(countText, width));
     lines.push("");
     return lines;
   }
@@ -1607,12 +1872,25 @@ class ReviewBrowserComponent {
       return lines;
     }
 
+    if (this.composeMode === "search") {
+      renderWrapped(theme.fg("dim", "Search: type to search this file diff • ↑/↓ or Ctrl+N/Ctrl+P move selection • Enter jump • Esc close"), width, lines);
+      renderWrapped(theme.fg("dim", "After closing, n / N move between matches • F1 or Alt+H toggle controls"), width, lines);
+      return lines;
+    }
+
     renderWrapped(
-      theme.fg("dim", "Move: Tab/Shift+Tab or n/p file • [ prev hunk • ] next hunk • ↑/↓ or j/k line • d/u or Ctrl+D/Ctrl+U half-page"),
+      theme.fg("dim", "Move: Tab/Shift+Tab file • [ prev hunk • ] next hunk • ↑/↓ or j/k line • d/u or Ctrl+D/Ctrl+U half-page"),
       width,
       lines,
     );
-    renderWrapped(theme.fg("dim", `View: w wrap ${this.uiState.wrapDiff ? "off" : "on"} • / or g jump file • ? hide controls`), width, lines);
+    renderWrapped(
+      theme.fg(
+        "dim",
+        `View: w wrap ${this.uiState.wrapDiff ? "off" : "on"} • / search diff • g files${this.searchQuery ? " • n/N search matches" : ""} • ? hide controls`,
+      ),
+      width,
+      lines,
+    );
     renderWrapped(
       theme.fg(
         "dim",
