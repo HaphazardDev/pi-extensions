@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildDispatchPrompt, parseThreadResponses } from "./threads.js";
-import type { ReviewThread } from "./types.js";
+import { buildDispatchPrompt, parseThreadResponses } from "../src/threads.js";
+import type { ReviewThread } from "../src/types.js";
 
 const baseThread: ReviewThread = {
   id: "thread-1",

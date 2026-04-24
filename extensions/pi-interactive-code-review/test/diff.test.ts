@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseGitDiff } from "./diff.js";
+import { parseGitDiff } from "../src/diff.js";
 
 describe("parseGitDiff", () => {
   it("parses modified file hunks with line numbers and counts", () => {

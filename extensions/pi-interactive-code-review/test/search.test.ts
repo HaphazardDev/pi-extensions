@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { findDiffSearchMatches, scoreFileJumpMatch } from "./search.js";
-import type { DiffFile } from "./types.js";
+import { findDiffSearchMatches, scoreFileJumpMatch } from "../src/search.js";
+import type { DiffFile } from "../src/types.js";
 
 const file: DiffFile = {
   filePath: "src/components/ReviewBrowser.ts",
