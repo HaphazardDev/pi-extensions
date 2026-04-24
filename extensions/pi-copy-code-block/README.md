@@ -57,7 +57,7 @@ Short aliases are supported too:
 
 ## Config
 
-The extension has a tiny config section at the top of `index.ts`:
+The extension has a tiny config section at the top of `src/index.ts`:
 
 - `showStatusHint`
 - `statusIcon`

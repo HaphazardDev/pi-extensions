@@ -25,5 +25,5 @@ jobs:
         with:
           cache: true
 
-      - name: Typecheck
-        run: vp run typecheck
+      - name: Validate
+        run: vp run ci

@@ -24,13 +24,14 @@
     "diff"
   ],
   "files": [
-    "index.ts",
+    "src",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "pi": {
     "extensions": [
-      "./index.ts"
+      "./src/index.ts"
     ]
   },
   "peerDependencies": {
