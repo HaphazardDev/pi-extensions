@@ -25,7 +25,12 @@
   ],
   "files": [
     "index.ts",
+    "diff.ts",
+    "search.ts",
+    "threads.ts",
+    "types.ts",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "pi": {

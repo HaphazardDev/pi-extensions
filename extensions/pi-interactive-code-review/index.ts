@@ -5,6 +5,9 @@ import type {
   Theme,
 } from "@mariozechner/pi-coding-agent";
 import { Editor, type EditorTheme, Key, matchesKey, SelectList, type SelectItem, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
+import { parseGitDiff } from "./diff.js";
+import { findDiffSearchMatches, scoreFileJumpMatch } from "./search.js";
+import { buildDispatchPrompt, parseThreadResponses } from "./threads.js";
 
 const REVIEW_STATE_TYPE = "interactive-code-review-state";
 const STATUS_KEY = "interactive-code-review";
@@ -14,7 +17,6 @@ const RESERVED_TOP_CONTEXT_ROWS = 4;
 const VIEWPORT_SAFETY_ROWS = 3;
 const LINE_CONTEXT_RADIUS = 3;
 const MAX_HUNK_EXCERPT_LINES = 24;
-const RESPONSE_BLOCK_PATTERN = /\[\[thread:([^\]]+)\]\]([\s\S]*?)(?=\n\[\[thread:|$)/g;
 
 type ThreadTargetKind = "file" | "hunk" | "line";
 type ThreadState = "queued" | "submitted" | "responded";
@@ -195,12 +197,6 @@ function getLastAssistantText(messages: Array<{ role?: string; content?: unknown
   return "";
 }
 
-function unquoteGitPath(path: string): string {
-  const trimmed = path.trim();
-  if (!trimmed.startsWith('"') || !trimmed.endsWith('"')) return trimmed;
-  return trimmed.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, "\\");
-}
-
 function formatCount(label: string, count: number): string {
   return `${count} ${label}${count === 1 ? "" : "s"}`;
 }
@@ -217,145 +213,35 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function parseHunkHeader(line: string): DiffHunk | null {
-  const match = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/.exec(line);
-  if (!match) return null;
-  return {
-    header: line,
-    oldStart: Number(match[1]),
-    oldLines: match[2] ? Number(match[2]) : 1,
-    newStart: Number(match[3]),
-    newLines: match[4] ? Number(match[4]) : 1,
-    lines: [],
-  };
+function basenameFromPath(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  const lastSlash = normalized.lastIndexOf("/");
+  return lastSlash >= 0 ? normalized.slice(lastSlash + 1) : normalized;
 }
 
-function parseGitDiff(rawDiff: string): DiffFile[] {
-  const lines = rawDiff.replace(/\r\n/g, "\n").split("\n");
-  const files: DiffFile[] = [];
+function highlightMatchedCharacters(text: string, positions: number[], theme: Theme): string {
+  if (positions.length === 0) return text;
 
-  let currentFile: DiffFile | undefined;
-  let currentHunk: DiffHunk | undefined;
-  let oldLine = 0;
-  let newLine = 0;
+  const highlighted = new Set(positions);
+  let output = "";
+  let current = "";
+  let currentHighlighted = false;
 
-  const finishHunk = () => {
-    if (currentFile && currentHunk) currentFile.hunks.push(currentHunk);
-    currentHunk = undefined;
+  const flush = () => {
+    if (!current) return;
+    output += currentHighlighted ? theme.fg("warning", theme.bold(current)) : current;
+    current = "";
   };
 
-  const finishFile = () => {
-    finishHunk();
-    if (!currentFile) return;
-    if (currentFile.hunks.length === 0 && !currentFile.note) {
-      currentFile.note =
-        currentFile.status === "renamed"
-          ? "Rename-only change. Use file-level comments to discuss this rename."
-          : "No textual hunks were emitted for this change. Use a file-level comment to review it.";
-    }
-    files.push(currentFile);
-    currentFile = undefined;
-  };
-
-  for (const line of lines) {
-    if (line.startsWith("diff --git ")) {
-      finishFile();
-      const match = /^diff --git a\/(.+) b\/(.+)$/.exec(line);
-      if (!match) continue;
-      const oldPath = unquoteGitPath(match[1]!);
-      const newPath = unquoteGitPath(match[2]!);
-      currentFile = {
-        filePath: newPath,
-        displayPath: newPath,
-        oldPath,
-        newPath,
-        status: "modified",
-        additions: 0,
-        deletions: 0,
-        hunks: [],
-      };
-      continue;
-    }
-
-    if (!currentFile) continue;
-
-    if (line.startsWith("new file mode ")) {
-      currentFile.status = "added";
-      continue;
-    }
-
-    if (line.startsWith("deleted file mode ")) {
-      currentFile.status = "deleted";
-      currentFile.filePath = currentFile.oldPath;
-      currentFile.displayPath = currentFile.oldPath;
-      continue;
-    }
-
-    if (line.startsWith("rename from ")) {
-      currentFile.status = "renamed";
-      currentFile.oldPath = unquoteGitPath(line.slice("rename from ".length));
-      currentFile.filePath = currentFile.newPath;
-      currentFile.displayPath = `${currentFile.oldPath} → ${currentFile.newPath}`;
-      continue;
-    }
-
-    if (line.startsWith("rename to ")) {
-      currentFile.status = "renamed";
-      currentFile.newPath = unquoteGitPath(line.slice("rename to ".length));
-      currentFile.filePath = currentFile.newPath;
-      currentFile.displayPath = `${currentFile.oldPath} → ${currentFile.newPath}`;
-      continue;
-    }
-
-    if (line.startsWith("Binary files ")) {
-      currentFile.note = "Binary file changed. Use a file-level comment to review it.";
-      continue;
-    }
-
-    if (line.startsWith("@@ ")) {
-      finishHunk();
-      const parsed = parseHunkHeader(line);
-      if (!parsed) continue;
-      currentHunk = parsed;
-      oldLine = parsed.oldStart;
-      newLine = parsed.newStart;
-      continue;
-    }
-
-    if (!currentHunk) continue;
-    if (line === "\\ No newline at end of file") continue;
-
-    const prefix = line[0];
-    const text = line.slice(1);
-
-    if (prefix === " ") {
-      currentHunk.lines.push({
-        kind: "context",
-        text,
-        oldLineNumber: oldLine,
-        newLineNumber: newLine,
-      });
-      oldLine++;
-      newLine++;
-      continue;
-    }
-
-    if (prefix === "+") {
-      currentFile.additions++;
-      currentHunk.lines.push({ kind: "add", text, newLineNumber: newLine });
-      newLine++;
-      continue;
-    }
-
-    if (prefix === "-") {
-      currentFile.deletions++;
-      currentHunk.lines.push({ kind: "del", text, oldLineNumber: oldLine });
-      oldLine++;
-    }
+  for (let i = 0; i < text.length; i++) {
+    const nextHighlighted = highlighted.has(i);
+    if (current.length > 0 && nextHighlighted !== currentHighlighted) flush();
+    currentHighlighted = nextHighlighted;
+    current += text[i];
   }
 
-  finishFile();
-  return files;
+  flush();
+  return output;
 }
 
 function lineLabel(line: DiffLine): string {
@@ -539,65 +425,6 @@ function inferCommentKind(text: string): ThreadCommentKind {
   return trimmed.endsWith("?") || /\?\s*$/m.test(trimmed) ? "question" : "comment";
 }
 
-function formatThreadPrompt(thread: ReviewThread): string {
-  return [
-    `Thread ID: ${thread.id}`,
-    `File: ${thread.displayPath}`,
-    `Target: ${threadLocationLabel(thread)}`,
-    `Reviewer ${thread.commentKind}:`,
-    thread.comment,
-    "Diff excerpt:",
-    "```diff",
-    thread.excerpt,
-    "```",
-  ].join("\n");
-}
-
-function buildDispatchPrompt(baseRef: string, threads: ReviewThread[]): string {
-  const promptParts = [
-    `Please address the following interactive code review thread${threads.length === 1 ? "" : "s"} against ${baseRef}.`,
-    "",
-    "For each thread:",
-    "- inspect any code you need",
-    "- make code changes when they are warranted",
-    "- if the reviewer is asking a question that does not require a code change, answer it directly",
-    "- after all tool use, finish with exactly one response block per thread using this format:",
-    "",
-    "[[thread:<id>]]",
-    "Status: answered|changed|needs-follow-up",
-    "Response:",
-    "<your response>",
-    "",
-    "Do not omit any thread ids.",
-    "",
-  ];
-
-  for (const thread of threads) {
-    promptParts.push(formatThreadPrompt(thread), "");
-  }
-
-  return promptParts.join("\n").trim();
-}
-
-function parseThreadResponses(text: string): Map<string, ParsedThreadResponse> {
-  const responses = new Map<string, ParsedThreadResponse>();
-  RESPONSE_BLOCK_PATTERN.lastIndex = 0;
-  let match: RegExpExecArray | null = RESPONSE_BLOCK_PATTERN.exec(text);
-
-  while (match) {
-    const threadId = match[1]!.trim();
-    const block = match[2]!.trim();
-    const statusMatch = /^Status:\s*(answered|changed|needs-follow-up)\s*$/im.exec(block);
-    const status = (statusMatch?.[1] ?? "answered") as ThreadResponseStatus;
-    let responseText = block.replace(/^Status:.*$/im, "").replace(/^Response:\s*$/im, "").trim();
-    if (responseText.length === 0) responseText = block.trim();
-    responses.set(threadId, { status, responseText });
-    match = RESPONSE_BLOCK_PATTERN.exec(text);
-  }
-
-  return responses;
-}
-
 function buildLineExcerpt(hunk: DiffHunk, lineIndex: number): string {
   const start = Math.max(0, lineIndex - LINE_CONTEXT_RADIUS);
   const end = Math.min(hunk.lines.length, lineIndex + LINE_CONTEXT_RADIUS + 1);
@@ -659,157 +486,6 @@ function isHelpToggleKey(data: string): boolean {
 
 function isTextInputHelpToggleKey(data: string): boolean {
   return matchesKey(data, Key.f1) || matchesKey(data, Key.alt("h"));
-}
-
-function basenameFromPath(path: string): string {
-  const normalized = path.replace(/\\/g, "/");
-  const lastSlash = normalized.lastIndexOf("/");
-  return lastSlash >= 0 ? normalized.slice(lastSlash + 1) : normalized;
-}
-
-function contiguousPositions(start: number, length: number): number[] {
-  return Array.from({ length }, (_, index) => start + index);
-}
-
-function fuzzySubsequenceMatch(query: string, target: string): SearchTargetMatch | null {
-  if (query.length === 0) return { score: 0, positions: [] };
-
-  let queryIndex = 0;
-  let score = 0;
-  let lastMatchIndex = -1;
-  const positions: number[] = [];
-
-  for (let i = 0; i < target.length && queryIndex < query.length; i++) {
-    if (target[i] !== query[queryIndex]) continue;
-
-    score += 10;
-    if (i === 0 || "/._- ".includes(target[i - 1] ?? "")) score += 18;
-    if (lastMatchIndex === i - 1) score += 14;
-    else if (lastMatchIndex >= 0) score -= Math.min(6, i - lastMatchIndex - 1);
-
-    positions.push(i);
-    lastMatchIndex = i;
-    queryIndex++;
-  }
-
-  if (queryIndex !== query.length) return null;
-  score -= Math.max(0, target.length - query.length);
-  return { score: 140 + score, positions };
-}
-
-function matchSearchTarget(query: string, target: string): SearchTargetMatch | null {
-  if (query.length === 0) return { score: 0, positions: [] };
-  if (target.length === 0) return null;
-
-  if (target === query) return { score: 600 - target.length, positions: contiguousPositions(0, query.length) };
-  if (target.startsWith(query)) return { score: 450 - Math.max(0, target.length - query.length), positions: contiguousPositions(0, query.length) };
-
-  const substringIndex = target.indexOf(query);
-  if (substringIndex >= 0) {
-    const boundaryBonus = substringIndex === 0 || "/._- ".includes(target[substringIndex - 1] ?? "") ? 40 : 0;
-    return {
-      score: 320 + boundaryBonus - substringIndex,
-      positions: contiguousPositions(substringIndex, query.length),
-    };
-  }
-
-  return fuzzySubsequenceMatch(query, target);
-}
-
-function remapPositionsToDisplay(source: string, display: string, positions: number[], preferLast = false): number[] {
-  if (positions.length === 0) return [];
-  const sourceIndex = preferLast ? display.lastIndexOf(source) : display.indexOf(source);
-  if (sourceIndex < 0) return [];
-  return positions.map((position) => sourceIndex + position).filter((position) => position >= 0 && position < display.length);
-}
-
-function uniqueSortedPositions(positions: Iterable<number>): number[] {
-  return Array.from(new Set(positions)).sort((a, b) => a - b);
-}
-
-function highlightMatchedCharacters(text: string, positions: number[], theme: Theme): string {
-  if (positions.length === 0) return text;
-
-  const highlighted = new Set(positions);
-  let output = "";
-  let current = "";
-  let currentHighlighted = false;
-
-  const flush = () => {
-    if (!current) return;
-    output += currentHighlighted ? theme.fg("warning", theme.bold(current)) : current;
-    current = "";
-  };
-
-  for (let i = 0; i < text.length; i++) {
-    const nextHighlighted = highlighted.has(i);
-    if (current.length > 0 && nextHighlighted !== currentHighlighted) flush();
-    currentHighlighted = nextHighlighted;
-    current += text[i];
-  }
-
-  flush();
-  return output;
-}
-
-function findSubstringMatchPositions(text: string, query: string): number[][] {
-  if (!query) return [];
-
-  const lowerText = text.toLowerCase();
-  const lowerQuery = query.toLowerCase();
-  const matches: number[][] = [];
-  let searchIndex = 0;
-
-  while (searchIndex <= lowerText.length - lowerQuery.length) {
-    const matchIndex = lowerText.indexOf(lowerQuery, searchIndex);
-    if (matchIndex < 0) break;
-    matches.push(contiguousPositions(matchIndex, lowerQuery.length));
-    searchIndex = matchIndex + Math.max(1, lowerQuery.length);
-  }
-
-  return matches;
-}
-
-function findDiffSearchMatches(file: DiffFile | undefined, query: string): DiffSearchMatch[] {
-  if (!file || !query.trim()) return [];
-
-  const matches: DiffSearchMatch[] = [];
-  file.hunks.forEach((hunk, hunkIndex) => {
-    hunk.lines.forEach((line, lineIndex) => {
-      for (const positions of findSubstringMatchPositions(line.text, query.trim())) {
-        matches.push({ hunkIndex, lineIndex, positions });
-      }
-    });
-  });
-
-  return matches;
-}
-
-function scoreFileJumpMatch(query: string, file: DiffFile): FileJumpMatch | null {
-  const terms = query.toLowerCase().split(/\s+/).filter((term) => term.length > 0);
-  if (terms.length === 0) {
-    return { score: 0, labelPositions: [], descriptionPositions: [] };
-  }
-
-  const basename = basenameFromPath(file.filePath).toLowerCase();
-  const displayPath = file.displayPath.toLowerCase();
-  const labelPositions: number[] = [];
-
-  let totalScore = 0;
-  for (const term of terms) {
-    const match = matchSearchTarget(term, basename);
-    if (match === null) return null;
-
-    totalScore += match.score;
-    labelPositions.push(...remapPositionsToDisplay(basename, displayPath, match.positions, true));
-  }
-
-  totalScore -= Math.max(0, basename.length - query.replace(/\s+/g, "").length);
-  return {
-    score: totalScore,
-    labelPositions: uniqueSortedPositions(labelPositions),
-    descriptionPositions: [],
-  };
 }
 
 function ensureFileSelected(snapshot: ReviewSnapshot | undefined, uiState: ReviewUIState) {

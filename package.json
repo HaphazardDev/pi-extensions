@@ -18,6 +18,9 @@
   "scripts": {
     "changeset": "changeset",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "pack:all": "npm pack --workspaces --dry-run",
+    "ci": "npm run typecheck && npm run test && npm run pack:all",
     "version-packages": "changeset version",
     "release": "changeset publish",
     "release:status": "changeset status --verbose",
@@ -32,6 +35,7 @@
     "@mariozechner/pi-tui": "^0.67.68",
     "@sinclair/typebox": "^0.34.41",
     "@types/node": "^24.0.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.5"
   }
 }
