@@ -26,7 +26,9 @@
   "files": [
     "index.ts",
     "diff.ts",
+    "format.ts",
     "search.ts",
+    "state.ts",
     "threads.ts",
     "types.ts",
     "README.md",

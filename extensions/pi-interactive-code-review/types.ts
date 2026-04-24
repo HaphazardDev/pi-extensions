@@ -115,6 +115,22 @@ export interface DiffSearchMatch {
   positions: number[];
 }
 
+export interface FileJumpItem {
+  value: string;
+  fileIndex: number;
+  rawLabel: string;
+  rawDescription: string;
+  file: DiffFile;
+}
+
+export type ReviewAction =
+  | { type: "close" }
+  | { type: "refresh" }
+  | { type: "saved-thread" }
+  | { type: "send-batch" }
+  | { type: "dispatch-threads"; threadIds: string[] }
+  | { type: "delete-thread"; visibleThreadIds: string[] };
+
 export interface ParsedThreadResponse {
   status: ThreadResponseStatus;
   responseText: string;
