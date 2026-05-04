@@ -1775,7 +1775,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
     const visibleRepos = parsedArgs.includeClean ? discovered : discovered.filter((repo) => repo.dirty || repo.error);
     const dirtyRepos = discovered.filter((repo) => repo.dirty && !repo.error);
 
-    if (parsedArgs.pick && visibleRepos.length > 0) {
+    if ((parsedArgs.pick || parsedArgs.includeClean) && visibleRepos.length > 0) {
       const options = formatRepoPickerOptions(visibleRepos);
       const choice = await ctx.ui.select("Select review target", options);
       if (!choice) throw new Error("Review target selection cancelled.");
