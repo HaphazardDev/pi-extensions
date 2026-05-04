@@ -811,6 +811,9 @@ class ReviewBrowserComponent {
     const now = Date.now();
     const thread: ReviewThread = {
       id: `review-${this.state.nextThreadId++}`,
+      repoPath: this.snapshot.repoPath,
+      repoDisplayPath: this.snapshot.repoDisplayPath,
+      baseRef: this.snapshot.baseRef,
       filePath: file.filePath,
       displayPath: file.displayPath,
       target:
@@ -1581,6 +1584,8 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
 
     state.pendingDispatches.push({
       id: dispatchId,
+      repoPath: snapshot?.repoPath ?? state.repoPath,
+      repoDisplayPath: snapshot?.repoDisplayPath ?? state.repoDisplayPath,
       threadIds: threads.map((thread) => thread.id),
       createdAt: now,
       baseRef: snapshot?.baseRef ?? state.baseRef ?? state.defaultBranch ?? "HEAD",
@@ -1628,7 +1633,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
     const now = Date.now();
 
     for (const threadId of pending.threadIds) {
-      const thread = state.threads.find((candidate) => candidate.id === threadId);
+      const thread = state.threads.find((candidate) => candidate.id === threadId && (!pending.repoPath || !candidate.repoPath || candidate.repoPath === pending.repoPath));
       if (!thread) continue;
 
       const response = parsed.get(threadId);
@@ -1656,7 +1661,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
 
     if (ctx.hasUI) {
       const responded = pending.threadIds.filter((threadId) => {
-        const thread = state.threads.find((candidate) => candidate.id === threadId);
+        const thread = state.threads.find((candidate) => candidate.id === threadId && (!pending.repoPath || !candidate.repoPath || candidate.repoPath === pending.repoPath));
         return thread?.state === "responded";
       }).length;
       if (responded > 0) {
@@ -1686,6 +1691,18 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
         const previousRepoPath = state.repoPath;
         snapshot = await buildSnapshot(target, requestedBaseRef);
         if (previousRepoPath && previousRepoPath !== snapshot.repoPath) state.selection = {};
+        for (const thread of state.threads) {
+          if (!thread.repoPath) {
+            thread.repoPath = snapshot.repoPath;
+            thread.repoDisplayPath = snapshot.repoDisplayPath;
+          }
+        }
+        for (const dispatch of state.pendingDispatches) {
+          if (!dispatch.repoPath) {
+            dispatch.repoPath = snapshot.repoPath;
+            dispatch.repoDisplayPath = snapshot.repoDisplayPath;
+          }
+        }
         state.repoPath = snapshot.repoPath;
         state.repoDisplayPath = snapshot.repoDisplayPath;
         state.baseRef = snapshot.baseRef;
@@ -1730,7 +1747,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
 
         if (action.type === "dispatch-threads") {
           const threads = action.threadIds
-            .map((threadId) => state.threads.find((thread) => thread.id === threadId))
+            .map((threadId) => state.threads.find((thread) => thread.id === threadId && (!state.repoPath || !thread.repoPath || thread.repoPath === state.repoPath)))
             .filter((thread): thread is ReviewThread => !!thread);
           if (threads.length === 0) continue;
 
@@ -1741,7 +1758,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
 
         if (action.type === "delete-thread") {
           const visibleThreads = action.visibleThreadIds
-            .map((threadId) => state.threads.find((thread) => thread.id === threadId))
+            .map((threadId) => state.threads.find((thread) => thread.id === threadId && (!state.repoPath || !thread.repoPath || thread.repoPath === state.repoPath)))
             .filter((thread): thread is ReviewThread => !!thread);
           if (visibleThreads.length === 0) {
             ctx.ui.notify("There are no visible review comments to delete here.", "warning");
@@ -1774,7 +1791,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
         }
 
         if (action.type === "send-batch") {
-          const queuedThreads = state.threads.filter((thread) => thread.state === "queued");
+          const queuedThreads = state.threads.filter((thread) => thread.state === "queued" && (!state.repoPath || !thread.repoPath || thread.repoPath === state.repoPath));
           if (queuedThreads.length === 0) {
             ctx.ui.notify("There are no queued review threads to send.", "warning");
             continue;

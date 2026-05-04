@@ -95,24 +95,24 @@ Allow `/review` to review changes in a git repository that is not necessarily pi
 
 ### State scoping
 
-- [ ] Add a stable target key for persisted state, based on the canonical absolute repo path.
-- [ ] Use the target key to separate saved review UI state, queued threads, submitted threads, and pending dispatches by repository.
-- [ ] Store branch and base ref as target metadata, not as part of the target key, so state is scoped to the repo itself while still showing which branch/base created the thread.
-- [ ] Prevent comments from one repo appearing in another repo's review UI.
-- [ ] Handle migration from existing unscoped state:
-  - [ ] Treat old state as belonging to the current repo.
-  - [ ] Avoid data loss if possible.
+- [x] Add a stable target key for persisted state, based on the canonical absolute repo path.
+- [x] Use the target key to separate saved review UI state, queued threads, submitted threads, and pending dispatches by repository.
+- [x] Store branch and base ref as target metadata, not as part of the target key, so state is scoped to the repo itself while still showing which branch/base created the thread.
+- [x] Prevent comments from one repo appearing in another repo's review UI.
+- [x] Handle migration from existing unscoped state:
+  - [x] Treat old state as belonging to the current repo.
+  - [x] Avoid data loss if possible.
 
 ### Thread matching
 
-- [ ] Include target key/repo path in pending dispatch metadata.
-- [ ] On `agent_end`, attach responses only to pending threads for the matching repo dispatch.
-- [ ] Keep existing thread-tag parsing behavior.
+- [x] Include target key/repo path in pending dispatch metadata.
+- [x] On `agent_end`, attach responses only to pending threads for the matching repo dispatch.
+- [x] Keep existing thread-tag parsing behavior.
 
 ### Agent prompt
 
-- [ ] Update `buildDispatchPrompt` or call site to include selected repo target.
-- [ ] Prompt should clearly say that paths are relative to the selected repository root.
+- [x] Update `buildDispatchPrompt` or call site to include selected repo target.
+- [x] Prompt should clearly say that paths are relative to the selected repository root.
 - [ ] Example prompt addition:
 
   ```text
@@ -120,7 +120,7 @@ Allow `/review` to review changes in a git repository that is not necessarily pi
   Please interpret file paths relative to that repository root.
   ```
 
-- [ ] If possible, instruct the agent to make changes in the selected repo path from the parent cwd.
+- [x] If possible, instruct the agent to make changes in the selected repo path from the parent cwd.
 
 ---
 

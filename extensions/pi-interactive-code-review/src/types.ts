@@ -66,6 +66,9 @@ export interface ReviewThreadTarget {
 
 export interface ReviewThread {
   id: string;
+  repoPath?: string;
+  repoDisplayPath?: string;
+  baseRef?: string;
   filePath: string;
   displayPath: string;
   target: ReviewThreadTarget;
@@ -84,6 +87,8 @@ export interface ReviewThread {
 
 export interface PendingDispatch {
   id: string;
+  repoPath?: string;
+  repoDisplayPath?: string;
   threadIds: string[];
   createdAt: number;
   baseRef: string;
