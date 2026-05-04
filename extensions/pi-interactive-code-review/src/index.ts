@@ -212,6 +212,14 @@ export function hasGitMarker(directory: string): boolean {
   return fs.existsSync(path.join(directory, ".git"));
 }
 
+function hasGitFileMarker(directory: string): boolean {
+  try {
+    return fs.statSync(path.join(directory, ".git")).isFile();
+  } catch {
+    return false;
+  }
+}
+
 export function findAncestorGitRepoMarkers(start: string): string[] {
   const repos: string[] = [];
   let current = path.resolve(start);
@@ -1710,12 +1718,15 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
     const currentTarget = await resolveReviewTarget(".").catch(() => undefined);
     if (currentTarget) repos.set(currentTarget.repoPath, "current");
 
-    for (const ancestor of findAncestorGitRepoMarkers(path.dirname(cwd))) {
-      const target = await resolveReviewTarget(ancestor).catch(() => undefined);
-      if (target && !repos.has(target.repoPath)) repos.set(target.repoPath, "parent");
+    const currentIsLinkedWorktree = currentTarget ? hasGitFileMarker(currentTarget.repoPath) : false;
+    if (!currentIsLinkedWorktree) {
+      for (const ancestor of findAncestorGitRepoMarkers(path.dirname(cwd))) {
+        const target = await resolveReviewTarget(ancestor).catch(() => undefined);
+        if (target && !repos.has(target.repoPath)) repos.set(target.repoPath, "parent");
+      }
     }
 
-    const outerRoot = await pi.exec("git", ["rev-parse", "--show-superproject-working-tree"]);
+    const outerRoot = currentIsLinkedWorktree ? { code: 1, stdout: "" } : await pi.exec("git", ["rev-parse", "--show-superproject-working-tree"]);
     if (outerRoot.code === 0 && outerRoot.stdout.trim()) {
       const parentPath = path.resolve(outerRoot.stdout.trim());
       const target = await resolveReviewTarget(parentPath).catch(() => undefined);
