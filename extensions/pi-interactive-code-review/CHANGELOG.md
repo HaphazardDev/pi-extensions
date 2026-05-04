@@ -1,5 +1,11 @@
 # @haphazarddev/pi-interactive-code-review
 
+## 0.2.0
+
+### Minor Changes
+
+- 153d3c3: Add support for reviewing child repositories and worktrees from the interactive review extension, including explicit `--repo`/`--base` targeting, dirty repo discovery, target picker selection, repo-scoped review threads, and target-aware prompts.
+
 ## 0.1.4
 
 ### Patch Changes
