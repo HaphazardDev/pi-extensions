@@ -262,18 +262,18 @@ Allow `/review` to review changes in a git repository that is not necessarily pi
 
 ### Integration/manual tests
 
-- [ ] Current repo only:
-  - [ ] `/review`
-  - [ ] `/review origin/main`
+- [x] Current repo only:
+  - [x] `/review`
+  - [x] `/review origin/main`
 - [ ] Parent repo with dirty child repo:
-  - [ ] `/review --repo repos/test-repo`
-  - [ ] `/review --repo repos/test-repo --base origin/main`
-  - [ ] `/review` auto-opens the dirty child repo when it is the only dirty candidate
-- [ ] Parent repo and child repo both dirty.
-- [ ] Clean child repo is hidden from the default picker.
-- [ ] Clean child repo appears as clean only when `--include-clean` is used.
-- [ ] Only dirty child repo auto-opens without showing the picker.
-- [ ] When pi cwd is inside a nested child repo, plain `/review` targets the parent git repo by default.
+  - [x] `/review --repo repos/test-repo`
+  - [x] `/review --repo repos/test-repo --base origin/main`
+  - [x] `/review` auto-opens the dirty child repo when it is the only dirty candidate
+- [x] Parent repo and child repo both dirty.
+- [x] Clean child repo is hidden from the default picker.
+- [x] Clean child repo appears as clean only when `--include-clean` is used.
+- [x] Only dirty child repo auto-opens without showing the picker.
+- [x] When pi cwd is inside a nested child repo, plain `/review` targets the parent git repo by default.
 - [ ] Child repo with invalid/missing base ref shows a helpful error.
 - [ ] Queued comments in parent repo do not appear in child repo.
 - [ ] Queued comments in child repo do not appear in parent repo.
