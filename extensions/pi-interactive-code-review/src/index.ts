@@ -1769,6 +1769,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
   const chooseReviewTarget = async (parsedArgs: ParsedReviewArgs, ctx: ExtensionCommandContext): Promise<ReviewTarget> => {
     if (parsedArgs.repoPath) return resolveReviewTarget(parsedArgs.repoPath);
     if (parsedArgs.current) return resolveReviewTarget(".");
+    if (parsedArgs.baseRef) return resolveReviewTarget(".");
 
     const discovered = rankDiscoveredRepos(await discoverReviewRepos({ maxDepth: parsedArgs.scanDepth }), state.recentTargets);
     const visibleRepos = parsedArgs.includeClean ? discovered : discovered.filter((repo) => repo.dirty || repo.error);
