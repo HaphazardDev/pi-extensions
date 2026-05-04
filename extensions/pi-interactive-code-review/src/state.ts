@@ -13,6 +13,7 @@ export function createEmptyState(): PersistedReviewState {
     selection: {},
     threads: [],
     pendingDispatches: [],
+    recentTargets: [],
   };
 }
 

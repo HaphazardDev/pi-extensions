@@ -43,6 +43,8 @@ Review a child repository or another repository path from your current working d
 
 A single bare argument that points to a git repository directory is treated as the review target; otherwise it is treated as the base ref.
 
+When `/review` discovers exactly one dirty candidate repo under the current working directory, it opens that repo automatically. When multiple dirty repos are discovered, it asks you to select the review target. Clean child repos are hidden by default; use `/review --pick --include-clean` to force the picker and include them. Use `/review --scan-depth <n>` to override the default child repo scan depth of 3. Use `/review --current` to force the innermost/current repo when pi is running inside a nested repo.
+
 ## Controls
 
 Inside the review UI, press `?` to show the full control reference in the lower section.

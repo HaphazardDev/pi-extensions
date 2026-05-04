@@ -165,16 +165,16 @@ Allow `/review` to review changes in a git repository that is not necessarily pi
 
 ### When to show picker
 
-- [ ] Show a picker for `/review` when multiple dirty candidate repos are discovered.
-- [ ] If exactly one candidate repo has changes, auto-open it without showing the picker, even when that repo is a child repo.
-- [ ] Hide clean child repos from the default picker.
-- [ ] If no dirty repos are found, show the default target with an empty/clean state instead of listing every clean child repo.
-- [ ] If an explicit `--repo` is provided, skip the picker.
-- [ ] If a bare base ref is provided, default to the parent/current review target unless target selection is explicitly requested.
+- [x] Show a picker for `/review` when multiple dirty candidate repos are discovered.
+- [x] If exactly one candidate repo has changes, auto-open it without showing the picker, even when that repo is a child repo.
+- [x] Hide clean child repos from the default picker.
+- [x] If no dirty repos are found, show the default target with an empty/clean state instead of listing every clean child repo.
+- [x] If an explicit `--repo` is provided, skip the picker.
+- [x] If a bare base ref is provided, default to the parent/current review target unless target selection is explicitly requested.
 
 ### Picker content
 
-- [ ] Add a target picker UI with rows like:
+- [x] Add a target picker UI with rows like:
 
   ```text
   › .                         current repo     feature/foo  4 files  +120 -31
@@ -187,33 +187,33 @@ Allow `/review` to review changes in a git repository that is not necessarily pi
     repos/other-repo          child repo       main         clean
   ```
 
-- [ ] Display per-row fields:
-  - [ ] repo display path
-  - [ ] target type: current repo / child repo / worktree / submodule if detectable
-  - [ ] branch
-  - [ ] changed file count
-  - [ ] `+/-` summary
-  - [ ] dirty/error badge
-  - [ ] clean badge only when clean repos are explicitly included
-- [ ] Add fuzzy filtering by repo path.
-- [ ] Highlight matched characters in repo paths.
-- [ ] Support keyboard controls:
-  - [ ] `↑` / `↓` move selection
-  - [ ] `Ctrl+N` / `Ctrl+P` alternate movement
-  - [ ] `Enter` select target
-  - [ ] `Esc` cancel
-  - [ ] `F1` / `Alt+H` help
+- [x] Display per-row fields:
+  - [x] repo display path
+  - [x] target type: current repo / child repo / worktree / submodule if detectable
+  - [x] branch
+  - [x] changed file count
+  - [x] `+/-` summary
+  - [x] dirty/error badge
+  - [x] clean badge only when clean repos are explicitly included
+- [x] Add fuzzy filtering by repo path.
+- [x] Highlight matched characters in repo paths.
+- [x] Support keyboard controls:
+  - [x] `↑` / `↓` move selection
+  - [x] `Ctrl+N` / `Ctrl+P` alternate movement
+  - [x] `Enter` select target
+  - [x] `Esc` cancel
+  - [x] `F1` / `Alt+H` help
 
 ### Picker ranking
 
-- [ ] Rank candidates in a useful order:
-  - [ ] explicit target first, if any
-  - [ ] repos with changes
-  - [ ] repos on a non-default branch
-  - [ ] recently reviewed repo
-  - [ ] parent/current review target
-  - [ ] clean repos only when explicitly included, sorted last
-- [ ] Make the default selected row the most likely useful target.
+- [x] Rank candidates in a useful order:
+  - [x] explicit target first, if any
+  - [x] repos with changes
+  - [x] repos on a non-default branch
+  - [x] recently reviewed repo
+  - [x] parent/current review target
+  - [x] clean repos only when explicitly included, sorted last
+- [x] Make the default selected row the most likely useful target.
 
 ---
 
@@ -221,23 +221,23 @@ Allow `/review` to review changes in a git repository that is not necessarily pi
 
 ### Recent target memory
 
-- [ ] Track recently reviewed repos in persisted/session state.
-- [ ] Place recent targets near the top of the picker.
+- [x] Track recently reviewed repos in persisted/session state.
+- [x] Place recent targets near the top of the picker.
 - [ ] Show a small recency hint, for example `last reviewed 3m ago`.
-- [ ] Decide whether `/review` should default to the last target or only preselect it.
+- [x] Decide whether `/review` should default to the last target or only preselect it.
 
 ### Additional command conveniences
 
-- [ ] Consider `/review --pick` to force the target picker.
-- [ ] Add `/review --scan-depth 6` or `/review --scan-depth <n>` for deeper child repo discovery.
-- [ ] Consider `/review --include-clean` to show clean child repos in the picker.
-- [ ] Consider `/review --current` to force the innermost/current repo and skip parent-repo defaulting.
+- [x] Consider `/review --pick` to force the target picker.
+- [x] Add `/review --scan-depth 6` or `/review --scan-depth <n>` for deeper child repo discovery.
+- [x] Consider `/review --include-clean` to show clean child repos in the picker.
+- [x] Consider `/review --current` to force the innermost/current repo and skip parent-repo defaulting.
 - [ ] Consider tab/completion support if pi commands expose completion APIs.
 
 ### README and help text
 
-- [ ] Update README usage examples.
-- [ ] Update notes explaining that paths are relative to the selected repo.
+- [x] Update README usage examples.
+- [x] Update notes explaining that paths are relative to the selected repo.
 - [ ] Update in-UI help to mention target selection if relevant.
 - [ ] Add troubleshooting notes for child repos and invalid base refs.
 

@@ -54,6 +54,9 @@ interface ParsedReviewArgs {
   repoPath?: string;
   baseRef?: string;
   scanDepth?: number;
+  pick?: boolean;
+  includeClean?: boolean;
+  current?: boolean;
 }
 
 interface RepoDiscoveryOptions {
@@ -171,6 +174,18 @@ function parseReviewArgs(input: string): ParsedReviewArgs {
     if (token.startsWith("--scan-depth=")) {
       parsed.scanDepth = Number(token.slice("--scan-depth=".length));
       if (!Number.isInteger(parsed.scanDepth) || parsed.scanDepth < 0) throw new Error("--scan-depth must be a non-negative integer.");
+      continue;
+    }
+    if (token === "--pick") {
+      parsed.pick = true;
+      continue;
+    }
+    if (token === "--include-clean") {
+      parsed.includeClean = true;
+      continue;
+    }
+    if (token === "--current") {
+      parsed.current = true;
       continue;
     }
     if (token.startsWith("--")) throw new Error(`Unknown option ${token}.`);
@@ -1620,6 +1635,29 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
     return base;
   };
 
+  const rankDiscoveredRepos = (repos: DiscoveredRepo[]): DiscoveredRepo[] => {
+    const kindRank = (repo: DiscoveredRepo) => repo.kind === "parent" ? 0 : repo.kind === "current" ? 1 : 2;
+    return [...repos].sort((a, b) => {
+      if (a.dirty !== b.dirty) return a.dirty ? -1 : 1;
+      const aNonDefault = !!a.branch && !!a.defaultBranch && a.branch !== basenameFromPath(a.defaultBranch);
+      const bNonDefault = !!b.branch && !!b.defaultBranch && b.branch !== basenameFromPath(b.defaultBranch);
+      if (aNonDefault !== bNonDefault) return aNonDefault ? -1 : 1;
+      const aRecent = state.recentTargets?.find((target) => target.repoPath === a.repoPath)?.reviewedAt ?? 0;
+      const bRecent = state.recentTargets?.find((target) => target.repoPath === b.repoPath)?.reviewedAt ?? 0;
+      if (aRecent !== bRecent) return bRecent - aRecent;
+      return kindRank(a) - kindRank(b) || a.displayPath.localeCompare(b.displayPath);
+    });
+  };
+
+  const formatRepoPickerOption = (repo: DiscoveredRepo): string => {
+    const summary = repo.error
+      ? `error: ${repo.error}`
+      : repo.dirty
+        ? `${repo.changedFiles} ${repo.changedFiles === 1 ? "file" : "files"}  +${repo.additions} -${repo.deletions}`
+        : "clean";
+    return `${repo.displayPath}\t${repo.kind} repo\t${repo.branch || "detached"}\t${summary}`;
+  };
+
   const discoverReviewRepos = async (options: Partial<RepoDiscoveryOptions> = {}): Promise<DiscoveredRepo[]> => {
     const discoveryOptions: RepoDiscoveryOptions = {
       maxDepth: options.maxDepth ?? DEFAULT_REPO_SCAN_DEPTH,
@@ -1680,6 +1718,50 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
       repoPath: repoRoot,
       displayPath: formatRepoDisplayPath(repoRoot),
     };
+  };
+
+  const rememberReviewTarget = (targetSnapshot: ReviewSnapshot) => {
+    const existing = state.recentTargets?.filter((target) => target.repoPath !== targetSnapshot.repoPath) ?? [];
+    state.recentTargets = [
+      { repoPath: targetSnapshot.repoPath, repoDisplayPath: targetSnapshot.repoDisplayPath, reviewedAt: Date.now() },
+      ...existing,
+    ].slice(0, 10);
+  };
+
+  const chooseReviewTarget = async (parsedArgs: ParsedReviewArgs, ctx: ExtensionCommandContext): Promise<ReviewTarget> => {
+    if (parsedArgs.repoPath) return resolveReviewTarget(parsedArgs.repoPath);
+    if (parsedArgs.current) return resolveReviewTarget(".");
+
+    const discovered = rankDiscoveredRepos(await discoverReviewRepos({ maxDepth: parsedArgs.scanDepth }));
+    const visibleRepos = parsedArgs.includeClean ? discovered : discovered.filter((repo) => repo.dirty || repo.error);
+    const dirtyRepos = discovered.filter((repo) => repo.dirty && !repo.error);
+
+    if (parsedArgs.pick && visibleRepos.length > 0) {
+      const options = visibleRepos.map(formatRepoPickerOption);
+      const choice = await ctx.ui.select("Select review target", options);
+      if (!choice) throw new Error("Review target selection cancelled.");
+      const selected = visibleRepos[options.indexOf(choice)];
+      if (!selected) throw new Error("Review target selection failed.");
+      return { repoPath: selected.repoPath, displayPath: selected.displayPath };
+    }
+
+    if (!parsedArgs.baseRef && dirtyRepos.length === 1) {
+      const selected = dirtyRepos[0]!;
+      return { repoPath: selected.repoPath, displayPath: selected.displayPath };
+    }
+
+    if (!parsedArgs.baseRef && dirtyRepos.length > 1) {
+      const options = dirtyRepos.map(formatRepoPickerOption);
+      const choice = await ctx.ui.select("Select review target", options);
+      if (!choice) throw new Error("Review target selection cancelled.");
+      const selected = dirtyRepos[options.indexOf(choice)];
+      if (!selected) throw new Error("Review target selection failed.");
+      return { repoPath: selected.repoPath, displayPath: selected.displayPath };
+    }
+
+    const defaultRepo = discovered.find((repo) => repo.kind === "parent") ?? discovered.find((repo) => repo.kind === "current");
+    if (defaultRepo) return { repoPath: defaultRepo.repoPath, displayPath: defaultRepo.displayPath };
+    return resolveReviewTarget(".");
   };
 
   const buildSnapshot = async (target: ReviewTarget, requestedBaseRef?: string): Promise<ReviewSnapshot> => {
@@ -1844,7 +1926,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
       try {
         const parsedArgs = parseReviewArgs(args);
         requestedBaseRef = parsedArgs.baseRef;
-        target = await resolveReviewTarget(parsedArgs.repoPath);
+        target = await chooseReviewTarget(parsedArgs, ctx);
         const previousRepoPath = state.repoPath;
         snapshot = await buildSnapshot(target, requestedBaseRef);
         if (previousRepoPath && previousRepoPath !== snapshot.repoPath) state.selection = {};
@@ -1863,6 +1945,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
         state.repoPath = snapshot.repoPath;
         state.repoDisplayPath = snapshot.repoDisplayPath;
         state.baseRef = snapshot.baseRef;
+        rememberReviewTarget(snapshot);
         state.defaultBranch = snapshot.defaultBranch;
         applySelectionToSnapshot(snapshot, uiState, state.selection);
         ensureFileSelected(snapshot, uiState);

@@ -94,6 +94,12 @@ export interface PendingDispatch {
   baseRef: string;
 }
 
+export interface RecentReviewTarget {
+  repoPath: string;
+  repoDisplayPath: string;
+  reviewedAt: number;
+}
+
 export interface PersistedReviewState {
   version: 1;
   repoPath?: string;
@@ -104,6 +110,7 @@ export interface PersistedReviewState {
   selection: ReviewSelectionAnchor;
   threads: ReviewThread[];
   pendingDispatches: PendingDispatch[];
+  recentTargets?: RecentReviewTarget[];
 }
 
 export interface ReviewUIState {
