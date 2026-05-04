@@ -53,7 +53,30 @@ function basenameFromPath(path: string): string {
 interface ParsedReviewArgs {
   repoPath?: string;
   baseRef?: string;
+  scanDepth?: number;
 }
+
+interface RepoDiscoveryOptions {
+  maxDepth: number;
+  maxRepos: number;
+}
+
+interface DiscoveredRepo {
+  repoPath: string;
+  displayPath: string;
+  kind: "current" | "child" | "parent";
+  branch?: string;
+  defaultBranch?: string;
+  changedFiles: number;
+  additions: number;
+  deletions: number;
+  dirty: boolean;
+  error?: string;
+}
+
+const DEFAULT_REPO_SCAN_DEPTH = 3;
+const DEFAULT_REPO_SCAN_LIMIT = 50;
+const SKIP_DISCOVERY_DIRS = new Set([".git", "node_modules", "dist", "build", ".next", "coverage", "vendor"]);
 
 function shellSplitArgs(input: string): string[] {
   const args: string[] = [];
@@ -138,6 +161,18 @@ function parseReviewArgs(input: string): ParsedReviewArgs {
       parsed.baseRef = token.slice("--base=".length);
       continue;
     }
+    if (token === "--scan-depth") {
+      const value = tokens[++i];
+      if (!value) throw new Error("Missing value for --scan-depth.");
+      parsed.scanDepth = Number(value);
+      if (!Number.isInteger(parsed.scanDepth) || parsed.scanDepth < 0) throw new Error("--scan-depth must be a non-negative integer.");
+      continue;
+    }
+    if (token.startsWith("--scan-depth=")) {
+      parsed.scanDepth = Number(token.slice("--scan-depth=".length));
+      if (!Number.isInteger(parsed.scanDepth) || parsed.scanDepth < 0) throw new Error("--scan-depth must be a non-negative integer.");
+      continue;
+    }
     if (token.startsWith("--")) throw new Error(`Unknown option ${token}.`);
     positional.push(token);
   }
@@ -152,6 +187,52 @@ function parseReviewArgs(input: string): ParsedReviewArgs {
   }
 
   return parsed;
+}
+
+function hasGitMarker(directory: string): boolean {
+  return fs.existsSync(path.join(directory, ".git"));
+}
+
+function findAncestorGitRepoMarkers(start: string): string[] {
+  const repos: string[] = [];
+  let current = path.resolve(start);
+  while (true) {
+    if (hasGitMarker(current)) repos.push(current);
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return repos;
+}
+
+function walkChildRepoCandidates(root: string, options: RepoDiscoveryOptions): string[] {
+  const repos: string[] = [];
+
+  const visit = (directory: string, depth: number) => {
+    if (repos.length >= options.maxRepos || depth > options.maxDepth) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (repos.length >= options.maxRepos) return;
+      if (!entry.isDirectory()) continue;
+      if (SKIP_DISCOVERY_DIRS.has(entry.name)) continue;
+
+      const childPath = path.join(directory, entry.name);
+      if (hasGitMarker(childPath)) {
+        repos.push(childPath);
+        continue;
+      }
+      visit(childPath, depth + 1);
+    }
+  };
+
+  visit(root, 1);
+  return repos;
 }
 
 function formatReviewStatus(theme: ExtensionContext["ui"]["theme"], state: PersistedReviewState): string | undefined {
@@ -1429,6 +1510,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
   let state = createEmptyState();
   const uiState = createUIState();
   let snapshot: ReviewSnapshot | undefined;
+  let discoveryCache: { key: string; repos: DiscoveredRepo[] } | undefined;
 
   const persistState = () => {
     state.selection = captureSelection(snapshot, uiState);
@@ -1502,6 +1584,81 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
       throw new Error(result.stderr.trim() || `Failed to diff untracked file ${path}.`);
     }
     return result.stdout;
+  };
+
+  const summarizeDiscoveredRepo = async (repoPath: string, kind: DiscoveredRepo["kind"]): Promise<DiscoveredRepo> => {
+    const target: ReviewTarget = { repoPath, displayPath: formatRepoDisplayPath(repoPath) };
+    const base: DiscoveredRepo = {
+      repoPath,
+      displayPath: target.displayPath,
+      kind,
+      changedFiles: 0,
+      additions: 0,
+      deletions: 0,
+      dirty: false,
+    };
+
+    try {
+      base.branch = await tryGit(target, ["branch", "--show-current"]);
+      base.defaultBranch = await resolveDefaultBranch(target).catch(() => undefined);
+
+      const status = await execGit(target, ["status", "--porcelain"]);
+      if (status.code !== 0) throw new Error(status.stderr.trim() || "git status failed");
+      base.dirty = status.stdout.trim().length > 0;
+      base.changedFiles = status.stdout.split("\n").filter((line) => line.trim().length > 0).length;
+
+      const shortstat = await execGit(target, ["diff", "--shortstat", "HEAD"]);
+      if (shortstat.code === 0) {
+        const text = shortstat.stdout.trim();
+        base.additions = Number(/(\d+) insertion/.exec(text)?.[1] ?? 0);
+        base.deletions = Number(/(\d+) deletion/.exec(text)?.[1] ?? 0);
+      }
+    } catch (error) {
+      base.error = error instanceof Error ? error.message : String(error);
+    }
+
+    return base;
+  };
+
+  const discoverReviewRepos = async (options: Partial<RepoDiscoveryOptions> = {}): Promise<DiscoveredRepo[]> => {
+    const discoveryOptions: RepoDiscoveryOptions = {
+      maxDepth: options.maxDepth ?? DEFAULT_REPO_SCAN_DEPTH,
+      maxRepos: options.maxRepos ?? DEFAULT_REPO_SCAN_LIMIT,
+    };
+    const cwd = process.cwd();
+    const cacheKey = `${cwd}:${discoveryOptions.maxDepth}:${discoveryOptions.maxRepos}`;
+    if (discoveryCache?.key === cacheKey) return discoveryCache.repos;
+
+    const repos = new Map<string, DiscoveredRepo["kind"]>();
+
+    const currentTarget = await resolveReviewTarget(".").catch(() => undefined);
+    if (currentTarget) repos.set(currentTarget.repoPath, "current");
+
+    for (const ancestor of findAncestorGitRepoMarkers(path.dirname(cwd))) {
+      const target = await resolveReviewTarget(ancestor).catch(() => undefined);
+      if (target && !repos.has(target.repoPath)) repos.set(target.repoPath, "parent");
+    }
+
+    const outerRoot = await pi.exec("git", ["rev-parse", "--show-superproject-working-tree"]);
+    if (outerRoot.code === 0 && outerRoot.stdout.trim()) {
+      const parentPath = path.resolve(outerRoot.stdout.trim());
+      const target = await resolveReviewTarget(parentPath).catch(() => undefined);
+      if (target && !repos.has(target.repoPath)) repos.set(target.repoPath, "parent");
+    }
+
+    for (const candidate of walkChildRepoCandidates(cwd, discoveryOptions)) {
+      const target = await resolveReviewTarget(candidate).catch(() => undefined);
+      if (!target) continue;
+      if (!repos.has(target.repoPath)) repos.set(target.repoPath, "child");
+      if (repos.size >= discoveryOptions.maxRepos) break;
+    }
+
+    const summaries: DiscoveredRepo[] = [];
+    for (const [repoPath, kind] of repos) {
+      summaries.push(await summarizeDiscoveredRepo(repoPath, kind));
+    }
+    discoveryCache = { key: cacheKey, repos: summaries };
+    return summaries;
   };
 
   const resolveReviewTarget = async (repoPath?: string): Promise<ReviewTarget> => {

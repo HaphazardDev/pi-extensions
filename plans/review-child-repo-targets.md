@@ -128,36 +128,36 @@ Allow `/review` to review changes in a git repository that is not necessarily pi
 
 ### Discovery implementation
 
-- [ ] Add repository discovery from pi cwd.
-- [ ] Include the parent/outer git repo when pi cwd is inside a nested child repo; plain `/review` should review that parent repo by default in this case.
-- [ ] Keep the innermost/current child repo selectable via explicit `--repo .`, `--current`, or the picker when forced.
-- [ ] Include child directories containing:
-  - [ ] `.git` directory
-  - [ ] `.git` file, for worktrees/submodules
-- [ ] Skip expensive/noisy directories:
-  - [ ] `.git`
-  - [ ] `node_modules`
-  - [ ] `dist`
-  - [ ] `build`
-  - [ ] `.next`
-  - [ ] `coverage`
-  - [ ] `vendor`
-- [ ] Use max depth 3 as the default discovery depth.
-- [ ] Add a configurable override, preferably `/review --scan-depth <n>`, for deeper child repo discovery.
-- [ ] Add a hard cap on discovered repos to avoid slow scans.
-- [ ] Consider caching discovered repos for the session.
+- [x] Add repository discovery from pi cwd.
+- [x] Include the parent/outer git repo when pi cwd is inside a nested child repo; plain `/review` should review that parent repo by default in this case.
+- [x] Keep the innermost/current child repo selectable via explicit `--repo .`, `--current`, or the picker when forced.
+- [x] Include child directories containing:
+  - [x] `.git` directory
+  - [x] `.git` file, for worktrees/submodules
+- [x] Skip expensive/noisy directories:
+  - [x] `.git`
+  - [x] `node_modules`
+  - [x] `dist`
+  - [x] `build`
+  - [x] `.next`
+  - [x] `coverage`
+  - [x] `vendor`
+- [x] Use max depth 3 as the default discovery depth.
+- [x] Add a configurable override, preferably `/review --scan-depth <n>`, for deeper child repo discovery.
+- [x] Add a hard cap on discovered repos to avoid slow scans.
+- [x] Consider caching discovered repos for the session.
 
 ### Repo summaries
 
-- [ ] For each discovered repo, compute:
-  - [ ] relative display path
-  - [ ] current branch
-  - [ ] default branch or base ref
-  - [ ] changed file count
-  - [ ] insertions/deletions summary
-  - [ ] clean/dirty status
-- [ ] Keep summary collection fast and resilient.
-- [ ] If a summary command fails for one repo, show that repo with an error badge instead of failing the whole picker.
+- [x] For each discovered repo, compute:
+  - [x] relative display path
+  - [x] current branch
+  - [x] default branch or base ref
+  - [x] changed file count
+  - [x] insertions/deletions summary
+  - [x] clean/dirty status
+- [x] Keep summary collection fast and resilient.
+- [x] If a summary command fails for one repo, show that repo with an error badge instead of failing the whole picker.
 
 ---
 
