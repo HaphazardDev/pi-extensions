@@ -1665,14 +1665,35 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
     return `last reviewed ${elapsedHours}h ago`;
   };
 
-  const formatRepoPickerOption = (repo: DiscoveredRepo): string => {
-    const summary = repo.error
-      ? `error: ${repo.error}`
-      : repo.dirty
-        ? `${repo.changedFiles} ${repo.changedFiles === 1 ? "file" : "files"}  +${repo.additions} -${repo.deletions}`
-        : "clean";
-    const recentHint = formatRecentHint(repo.repoPath);
-    return `${repo.displayPath}\t${repo.kind} repo\t${repo.branch || "detached"}\t${summary}${recentHint ? `\t${recentHint}` : ""}`;
+  const formatRepoPickerOptions = (repos: DiscoveredRepo[]): string[] => {
+    const labels = repos.map((repo) => ({
+      repo,
+      path: repo.displayPath,
+      kind: `${repo.kind} repo`,
+      branch: repo.branch || "detached",
+      summary: repo.error
+        ? `! ${repo.error}`
+        : repo.dirty
+          ? `● ${repo.changedFiles} ${repo.changedFiles === 1 ? "file" : "files"}  +${repo.additions} -${repo.deletions}`
+          : "○ clean",
+      recentHint: formatRecentHint(repo.repoPath),
+    }));
+    const pathWidth = Math.min(40, Math.max(1, ...labels.map((label) => label.path.length)));
+    const kindWidth = Math.max(1, ...labels.map((label) => label.kind.length));
+    const branchWidth = Math.min(24, Math.max(1, ...labels.map((label) => label.branch.length)));
+
+    return labels.map((label) => {
+      const displayPath = label.path.length > pathWidth ? `…${label.path.slice(-pathWidth + 1)}` : label.path;
+      const branch = label.branch.length > branchWidth ? `…${label.branch.slice(-branchWidth + 1)}` : label.branch;
+      const columns = [
+        displayPath.padEnd(pathWidth),
+        label.kind.padEnd(kindWidth),
+        branch.padEnd(branchWidth),
+        label.summary,
+      ];
+      if (label.recentHint) columns.push(label.recentHint);
+      return columns.join("  ");
+    });
   };
 
   const discoverReviewRepos = async (options: Partial<RepoDiscoveryOptions> = {}): Promise<DiscoveredRepo[]> => {
@@ -1754,7 +1775,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
     const dirtyRepos = discovered.filter((repo) => repo.dirty && !repo.error);
 
     if (parsedArgs.pick && visibleRepos.length > 0) {
-      const options = visibleRepos.map(formatRepoPickerOption);
+      const options = formatRepoPickerOptions(visibleRepos);
       const choice = await ctx.ui.select("Select review target", options);
       if (!choice) throw new Error("Review target selection cancelled.");
       const selected = visibleRepos[options.indexOf(choice)];
@@ -1768,7 +1789,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
     }
 
     if (!parsedArgs.baseRef && dirtyRepos.length > 1) {
-      const options = dirtyRepos.map(formatRepoPickerOption);
+      const options = formatRepoPickerOptions(dirtyRepos);
       const choice = await ctx.ui.select("Select review target", options);
       if (!choice) throw new Error("Review target selection cancelled.");
       const selected = dirtyRepos[options.indexOf(choice)];
