@@ -137,7 +137,7 @@ function formatRepoDisplayPath(repoPath: string): string {
   return relative.split(path.sep).join("/");
 }
 
-function parseReviewArgs(input: string): ParsedReviewArgs {
+export function parseReviewArgs(input: string): ParsedReviewArgs {
   const tokens = shellSplitArgs(input.trim());
   const parsed: ParsedReviewArgs = {};
   const positional: string[] = [];

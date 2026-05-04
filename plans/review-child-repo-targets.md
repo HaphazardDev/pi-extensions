@@ -247,18 +247,18 @@ Allow `/review` to review changes in a git repository that is not necessarily pi
 
 ### Unit tests
 
-- [ ] Test command parsing:
-  - [ ] explicit `--repo`
-  - [ ] explicit `--base`
-  - [ ] existing bare base ref behavior
+- [x] Test command parsing:
+  - [x] explicit `--repo`
+  - [x] explicit `--base`
+  - [x] existing bare base ref behavior
   - [ ] bare repo directory behavior
-  - [ ] invalid combinations
+  - [x] invalid combinations
 - [ ] Test target key generation.
 - [ ] Test state scoping by repo.
 - [ ] Test state migration from old unscoped state.
 - [ ] Test repo discovery skip rules.
 - [ ] Test picker ranking.
-- [ ] Test prompt formatting with repo target metadata.
+- [x] Test prompt formatting with repo target metadata.
 
 ### Integration/manual tests
 
