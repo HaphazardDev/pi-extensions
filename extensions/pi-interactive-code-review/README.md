@@ -31,7 +31,17 @@ Optionally review against a specific ref instead of the detected default branch:
 ```bash
 /review origin/main
 /review main
+/review --base origin/main
 ```
+
+Review a child repository or another repository path from your current working directory:
+
+```bash
+/review --repo repos/test-repo
+/review --repo repos/test-repo --base origin/main
+```
+
+A single bare argument that points to a git repository directory is treated as the review target; otherwise it is treated as the base ref.
 
 ## Controls
 

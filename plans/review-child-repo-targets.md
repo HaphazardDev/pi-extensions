@@ -19,48 +19,48 @@ Allow `/review` to review changes in a git repository that is not necessarily pi
 
 ### Command parsing
 
-- [ ] Add support for explicit repo targeting:
-  - [ ] `/review --repo repos/test-repo`
-  - [ ] `/review --repo repos/test-repo --base origin/main`
-  - [ ] `/review --base origin/main`
-- [ ] Preserve existing behavior:
-  - [ ] `/review`
-  - [ ] `/review origin/main`
-  - [ ] `/review main`
-- [ ] Add safe bare-argument detection:
-  - [ ] If a bare arg is an existing directory containing a git repo, treat it as `repoPath`.
-  - [ ] Otherwise treat the bare arg as `baseRef`.
-- [ ] Validate invalid argument combinations with a clear UI error.
-- [ ] Document command syntax in the README.
+- [x] Add support for explicit repo targeting:
+  - [x] `/review --repo repos/test-repo`
+  - [x] `/review --repo repos/test-repo --base origin/main`
+  - [x] `/review --base origin/main`
+- [x] Preserve existing behavior:
+  - [x] `/review`
+  - [x] `/review origin/main`
+  - [x] `/review main`
+- [x] Add safe bare-argument detection:
+  - [x] If a bare arg is an existing directory containing a git repo, treat it as `repoPath`.
+  - [x] Otherwise treat the bare arg as `baseRef`.
+- [x] Validate invalid argument combinations with a clear UI error.
+- [x] Document command syntax in the README.
 
 ### Git execution in selected repo
 
-- [ ] Introduce a `ReviewTarget` type with at least:
-  - [ ] `repoPath` absolute path
-  - [ ] `displayPath` relative to pi cwd when possible
-  - [ ] `baseRef`
-  - [ ] `defaultBranch`
-- [ ] Update `execGit` to run git commands against the target repo, likely using `git -C <repoPath> ...`.
-- [ ] Update default branch detection to run inside the selected repo.
-- [ ] Update untracked file detection to run inside the selected repo.
-- [ ] Update tracked and untracked diff generation to run inside the selected repo.
-- [ ] Ensure parsed diff file paths remain relative to the selected repository root.
-- [ ] Add clear error messages for:
-  - [ ] target path does not exist
-  - [ ] target path is not a git repo
-  - [ ] target base ref cannot be resolved
-  - [ ] merge-base cannot be computed
+- [x] Introduce a `ReviewTarget` type with at least:
+  - [x] `repoPath` absolute path
+  - [x] `displayPath` relative to pi cwd when possible
+  - [x] `baseRef`
+  - [x] `defaultBranch`
+- [x] Update `execGit` to run git commands against the target repo, likely using `git -C <repoPath> ...`.
+- [x] Update default branch detection to run inside the selected repo.
+- [x] Update untracked file detection to run inside the selected repo.
+- [x] Update tracked and untracked diff generation to run inside the selected repo.
+- [x] Ensure parsed diff file paths remain relative to the selected repository root.
+- [x] Add clear error messages for:
+  - [x] target path does not exist
+  - [x] target path is not a git repo
+  - [x] target base ref cannot be resolved
+  - [x] merge-base cannot be computed
 
 ### Snapshot/state model
 
-- [ ] Extend `ReviewSnapshot` to include target metadata:
-  - [ ] `repoPath`
-  - [ ] `repoDisplayPath`
-  - [ ] `baseRef`
-  - [ ] `defaultBranch`
-- [ ] Store selected repo metadata in persisted review state.
-- [ ] Ensure refresh uses the same target repo and base ref.
-- [ ] Ensure selection restoration only applies within the same target repo.
+- [x] Extend `ReviewSnapshot` to include target metadata:
+  - [x] `repoPath`
+  - [x] `repoDisplayPath`
+  - [x] `baseRef`
+  - [x] `defaultBranch`
+- [x] Store selected repo metadata in persisted review state.
+- [x] Ensure refresh uses the same target repo and base ref.
+- [x] Ensure selection restoration only applies within the same target repo.
 
 ---
 

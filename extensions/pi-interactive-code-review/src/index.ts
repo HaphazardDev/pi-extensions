@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -10,7 +12,7 @@ import { parseGitDiff } from "./diff.js";
 import { findDiffSearchMatches, scoreFileJumpMatch } from "./search.js";
 import { applySelectionToSnapshot, captureSelection, clampSelectionToSnapshot, createEmptyState, createUIState, currentFile, currentHunk, currentLine, lineMatchesAnchor } from "./state.js";
 import { buildDispatchPrompt, parseThreadResponses } from "./threads.js";
-import type { DiffFile, DiffHunk, DiffLine, DiffSearchMatch, FileJumpItem, FileJumpMatch, PersistedReviewState, ReviewAction, ReviewSnapshot, ReviewThread, ReviewUIState, ThreadCommentKind, ThreadTargetKind } from "./types.js";
+import type { DiffFile, DiffHunk, DiffLine, DiffSearchMatch, FileJumpItem, FileJumpMatch, PersistedReviewState, ReviewAction, ReviewSnapshot, ReviewTarget, ReviewThread, ReviewUIState, ThreadCommentKind, ThreadTargetKind } from "./types.js";
 
 const REVIEW_STATE_TYPE = "interactive-code-review-state";
 const STATUS_KEY = "interactive-code-review";
@@ -46,6 +48,110 @@ function basenameFromPath(path: string): string {
   const normalized = path.replace(/\\/g, "/");
   const lastSlash = normalized.lastIndexOf("/");
   return lastSlash >= 0 ? normalized.slice(lastSlash + 1) : normalized;
+}
+
+interface ParsedReviewArgs {
+  repoPath?: string;
+  baseRef?: string;
+}
+
+function shellSplitArgs(input: string): string[] {
+  const args: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | undefined;
+  let escaping = false;
+
+  for (const char of input) {
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+    if (char === "\\" && quote !== "'") {
+      escaping = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = undefined;
+      else current += char;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current.length > 0) {
+        args.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+
+  if (escaping) current += "\\";
+  if (quote) throw new Error("Unclosed quote in /review arguments.");
+  if (current.length > 0) args.push(current);
+  return args;
+}
+
+function looksLikeGitRepoDirectory(candidatePath: string): boolean {
+  try {
+    const stat = fs.statSync(candidatePath);
+    if (!stat.isDirectory()) return false;
+    return fs.existsSync(path.join(candidatePath, ".git"));
+  } catch {
+    return false;
+  }
+}
+
+function formatRepoDisplayPath(repoPath: string): string {
+  const relative = path.relative(process.cwd(), repoPath) || ".";
+  return relative.split(path.sep).join("/");
+}
+
+function parseReviewArgs(input: string): ParsedReviewArgs {
+  const tokens = shellSplitArgs(input.trim());
+  const parsed: ParsedReviewArgs = {};
+  const positional: string[] = [];
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]!;
+    if (token === "--repo") {
+      const value = tokens[++i];
+      if (!value) throw new Error("Missing value for --repo.");
+      parsed.repoPath = value;
+      continue;
+    }
+    if (token.startsWith("--repo=")) {
+      parsed.repoPath = token.slice("--repo=".length);
+      continue;
+    }
+    if (token === "--base") {
+      const value = tokens[++i];
+      if (!value) throw new Error("Missing value for --base.");
+      parsed.baseRef = value;
+      continue;
+    }
+    if (token.startsWith("--base=")) {
+      parsed.baseRef = token.slice("--base=".length);
+      continue;
+    }
+    if (token.startsWith("--")) throw new Error(`Unknown option ${token}.`);
+    positional.push(token);
+  }
+
+  if (positional.length > 1) throw new Error("Too many positional arguments. Use --repo <path> and --base <ref> for clarity.");
+  if (positional.length === 1) {
+    const value = positional[0]!;
+    const absolute = path.resolve(process.cwd(), value);
+    if (!parsed.repoPath && looksLikeGitRepoDirectory(absolute)) parsed.repoPath = value;
+    else if (!parsed.baseRef) parsed.baseRef = value;
+    else throw new Error(`Unexpected positional argument ${value}.`);
+  }
+
+  return parsed;
 }
 
 function formatReviewStatus(theme: ExtensionContext["ui"]["theme"], state: PersistedReviewState): string | undefined {
@@ -1339,39 +1445,39 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
     updateStatus(ctx);
   };
 
-  const execGit = async (args: string[]) => {
-    const result = await pi.exec("git", args);
+  const execGit = async (target: ReviewTarget, args: string[]) => {
+    const result = await pi.exec("git", ["-C", target.repoPath, ...args]);
     return result;
   };
 
-  const tryGit = async (args: string[]): Promise<string | undefined> => {
-    const result = await execGit(args);
+  const tryGit = async (target: ReviewTarget, args: string[]): Promise<string | undefined> => {
+    const result = await execGit(target, args);
     if (result.code !== 0) return undefined;
     const text = result.stdout.trim();
     return text.length > 0 ? text : undefined;
   };
 
-  const resolveDefaultBranch = async (): Promise<string> => {
-    const remoteHead = await tryGit(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
+  const resolveDefaultBranch = async (target: ReviewTarget): Promise<string> => {
+    const remoteHead = await tryGit(target, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
     if (remoteHead) return remoteHead;
 
-    const remoteMain = await tryGit(["rev-parse", "--verify", "refs/remotes/origin/main"]);
+    const remoteMain = await tryGit(target, ["rev-parse", "--verify", "refs/remotes/origin/main"]);
     if (remoteMain) return "origin/main";
 
-    const remoteMaster = await tryGit(["rev-parse", "--verify", "refs/remotes/origin/master"]);
+    const remoteMaster = await tryGit(target, ["rev-parse", "--verify", "refs/remotes/origin/master"]);
     if (remoteMaster) return "origin/master";
 
-    const localMain = await tryGit(["rev-parse", "--verify", "main"]);
+    const localMain = await tryGit(target, ["rev-parse", "--verify", "main"]);
     if (localMain) return "main";
 
-    const localMaster = await tryGit(["rev-parse", "--verify", "master"]);
+    const localMaster = await tryGit(target, ["rev-parse", "--verify", "master"]);
     if (localMaster) return "master";
 
     throw new Error("Could not determine a default branch. Try /review <base-ref>.");
   };
 
-  const getUntrackedPaths = async (): Promise<string[]> => {
-    const result = await execGit(["ls-files", "--others", "--exclude-standard", "-z"]);
+  const getUntrackedPaths = async (target: ReviewTarget): Promise<string[]> => {
+    const result = await execGit(target, ["ls-files", "--others", "--exclude-standard", "-z"]);
     if (result.code !== 0) {
       throw new Error(result.stderr.trim() || "Failed to list untracked files.");
     }
@@ -1382,46 +1488,76 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
       .filter((path) => path.length > 0);
   };
 
-  const buildUntrackedDiff = async (path: string): Promise<string> => {
-    const result = await execGit(["diff", "--no-index", "--unified=3", "--no-color", "/dev/null", path]);
+  const buildUntrackedDiff = async (target: ReviewTarget, path: string): Promise<string> => {
+    const result = await execGit(target, ["diff", "--no-index", "--unified=3", "--no-color", "/dev/null", path]);
     if (result.code !== 0 && result.code !== 1) {
       throw new Error(result.stderr.trim() || `Failed to diff untracked file ${path}.`);
     }
     return result.stdout;
   };
 
-  const buildSnapshot = async (requestedBaseRef?: string): Promise<ReviewSnapshot> => {
-    const defaultBranch = state.defaultBranch || (requestedBaseRef?.trim() ? undefined : await resolveDefaultBranch());
-    const baseRef = requestedBaseRef?.trim() || state.baseRef || state.defaultBranch || defaultBranch;
-    if (!baseRef) {
-      throw new Error("Could not determine a review base. Try /review <base-ref>.");
-    }
-    const verify = await execGit(["rev-parse", "--verify", baseRef]);
-    if (verify.code !== 0) {
-      const reason = verify.stderr.trim() || `Unable to resolve ${baseRef}`;
-      throw new Error(reason);
+  const resolveReviewTarget = async (repoPath?: string): Promise<ReviewTarget> => {
+    const requestedPath = path.resolve(process.cwd(), repoPath || state.repoPath || ".");
+    if (!fs.existsSync(requestedPath)) throw new Error(`Review target does not exist: ${repoPath || requestedPath}`);
+    if (!fs.statSync(requestedPath).isDirectory()) throw new Error(`Review target is not a directory: ${repoPath || requestedPath}`);
+
+    const provisional: ReviewTarget = {
+      repoPath: requestedPath,
+      displayPath: formatRepoDisplayPath(requestedPath),
+    };
+    const root = await execGit(provisional, ["rev-parse", "--show-toplevel"]);
+    if (root.code !== 0) {
+      throw new Error(root.stderr.trim() || `Review target is not a git repository: ${provisional.displayPath}`);
     }
 
-    const mergeBase = await execGit(["merge-base", baseRef, "HEAD"]);
+    const repoRoot = path.resolve(root.stdout.trim());
+    return {
+      repoPath: repoRoot,
+      displayPath: formatRepoDisplayPath(repoRoot),
+    };
+  };
+
+  const buildSnapshot = async (target: ReviewTarget, requestedBaseRef?: string): Promise<ReviewSnapshot> => {
+    const sameRepoAsState = state.repoPath === target.repoPath;
+    const defaultBranch = sameRepoAsState && state.defaultBranch
+      ? state.defaultBranch
+      : (requestedBaseRef?.trim() ? undefined : await resolveDefaultBranch(target));
+    const baseRef = requestedBaseRef?.trim() || (sameRepoAsState ? state.baseRef : undefined) || defaultBranch;
+    if (!baseRef) {
+      throw new Error("Could not determine a review base. Try /review --base <base-ref>.");
+    }
+    const verify = await execGit(target, ["rev-parse", "--verify", baseRef]);
+    if (verify.code !== 0) {
+      const reason = verify.stderr.trim() || `Unable to resolve ${baseRef}`;
+      throw new Error(`Unable to resolve base ref ${baseRef} in ${target.displayPath}: ${reason}`);
+    }
+
+    const mergeBase = await execGit(target, ["merge-base", baseRef, "HEAD"]);
     if (mergeBase.code !== 0) {
-      throw new Error(mergeBase.stderr.trim() || `Unable to compute merge-base for ${baseRef} and HEAD`);
+      throw new Error(mergeBase.stderr.trim() || `Unable to compute merge-base for ${baseRef} and HEAD in ${target.displayPath}`);
     }
 
     const mergeBaseSha = mergeBase.stdout.trim();
-    const trackedDiff = await execGit(["diff", "--unified=3", "--no-color", "--find-renames", mergeBaseSha]);
+    const trackedDiff = await execGit(target, ["diff", "--unified=3", "--no-color", "--find-renames", mergeBaseSha]);
     if (trackedDiff.code !== 0) {
-      throw new Error(trackedDiff.stderr.trim() || `git diff failed for ${mergeBaseSha}`);
+      throw new Error(trackedDiff.stderr.trim() || `git diff failed for ${mergeBaseSha} in ${target.displayPath}`);
     }
 
-    const untrackedPaths = await getUntrackedPaths();
+    const untrackedPaths = await getUntrackedPaths(target);
     const untrackedDiffs: string[] = [];
     for (const path of untrackedPaths) {
-      untrackedDiffs.push(await buildUntrackedDiff(path));
+      untrackedDiffs.push(await buildUntrackedDiff(target, path));
     }
 
     const combinedDiff = [trackedDiff.stdout, ...untrackedDiffs].filter((chunk) => chunk.trim().length > 0).join("\n");
     const files = parseGitDiff(combinedDiff);
-    return { baseRef, defaultBranch: defaultBranch ?? baseRef, files };
+    return {
+      repoPath: target.repoPath,
+      repoDisplayPath: target.displayPath,
+      baseRef,
+      defaultBranch: defaultBranch ?? baseRef,
+      files,
+    };
   };
 
   const dispatchThreads = async (threads: ReviewThread[], ctx: ExtensionCommandContext) => {
@@ -1533,10 +1669,18 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
         return;
       }
 
-      const requestedBaseRef = args.trim() || undefined;
+      let requestedBaseRef: string | undefined;
+      let target: ReviewTarget;
 
       try {
-        snapshot = await buildSnapshot(requestedBaseRef);
+        const parsedArgs = parseReviewArgs(args);
+        requestedBaseRef = parsedArgs.baseRef;
+        target = await resolveReviewTarget(parsedArgs.repoPath);
+        const previousRepoPath = state.repoPath;
+        snapshot = await buildSnapshot(target, requestedBaseRef);
+        if (previousRepoPath && previousRepoPath !== snapshot.repoPath) state.selection = {};
+        state.repoPath = snapshot.repoPath;
+        state.repoDisplayPath = snapshot.repoDisplayPath;
         state.baseRef = snapshot.baseRef;
         state.defaultBranch = snapshot.defaultBranch;
         applySelectionToSnapshot(snapshot, uiState, state.selection);
@@ -1561,7 +1705,8 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
 
         if (action.type === "refresh") {
           try {
-            snapshot = await buildSnapshot(requestedBaseRef ?? state.baseRef);
+            const refreshTarget = await resolveReviewTarget(state.repoPath);
+            snapshot = await buildSnapshot(refreshTarget, requestedBaseRef ?? state.baseRef);
             applySelectionToSnapshot(snapshot, uiState, state.selection);
             persistState();
           } catch (error) {

@@ -33,7 +33,16 @@ export interface DiffFile {
   note?: string;
 }
 
+export interface ReviewTarget {
+  repoPath: string;
+  displayPath: string;
+  baseRef?: string;
+  defaultBranch?: string;
+}
+
 export interface ReviewSnapshot {
+  repoPath: string;
+  repoDisplayPath: string;
   baseRef: string;
   defaultBranch: string;
   files: DiffFile[];
@@ -82,6 +91,8 @@ export interface PendingDispatch {
 
 export interface PersistedReviewState {
   version: 1;
+  repoPath?: string;
+  repoDisplayPath?: string;
   defaultBranch?: string;
   baseRef?: string;
   nextThreadId: number;
