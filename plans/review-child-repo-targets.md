@@ -251,13 +251,13 @@ Allow `/review` to review changes in a git repository that is not necessarily pi
   - [x] explicit `--repo`
   - [x] explicit `--base`
   - [x] existing bare base ref behavior
-  - [ ] bare repo directory behavior
+  - [x] bare repo directory behavior
   - [x] invalid combinations
-- [ ] Test target key generation.
-- [ ] Test state scoping by repo.
-- [ ] Test state migration from old unscoped state.
-- [ ] Test repo discovery skip rules.
-- [ ] Test picker ranking.
+- [x] Test target key generation.
+- [x] Test state scoping by repo.
+- [x] Test state migration from old unscoped state.
+- [x] Test repo discovery skip rules.
+- [x] Test picker ranking.
 - [x] Test prompt formatting with repo target metadata.
 
 ### Integration/manual tests
@@ -279,6 +279,8 @@ Allow `/review` to review changes in a git repository that is not necessarily pi
 - [ ] Queued comments in child repo do not appear in parent repo.
 - [ ] Agent responses attach to the correct child repo threads.
 - [ ] Refresh keeps the same target repo.
+
+> Manual/integration checks remain unchecked until they are exercised in the interactive pi UI.
 
 ---
 

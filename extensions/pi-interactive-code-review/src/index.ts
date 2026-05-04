@@ -59,12 +59,12 @@ interface ParsedReviewArgs {
   current?: boolean;
 }
 
-interface RepoDiscoveryOptions {
+export interface RepoDiscoveryOptions {
   maxDepth: number;
   maxRepos: number;
 }
 
-interface DiscoveredRepo {
+export interface DiscoveredRepo {
   repoPath: string;
   displayPath: string;
   kind: "current" | "child" | "parent";
@@ -77,9 +77,9 @@ interface DiscoveredRepo {
   error?: string;
 }
 
-const DEFAULT_REPO_SCAN_DEPTH = 3;
-const DEFAULT_REPO_SCAN_LIMIT = 50;
-const SKIP_DISCOVERY_DIRS = new Set([".git", "node_modules", "dist", "build", ".next", "coverage", "vendor"]);
+export const DEFAULT_REPO_SCAN_DEPTH = 3;
+export const DEFAULT_REPO_SCAN_LIMIT = 50;
+export const SKIP_DISCOVERY_DIRS = new Set([".git", "node_modules", "dist", "build", ".next", "coverage", "vendor"]);
 
 function shellSplitArgs(input: string): string[] {
   const args: string[] = [];
@@ -130,6 +130,10 @@ function looksLikeGitRepoDirectory(candidatePath: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function getReviewTargetKey(repoPath: string): string {
+  return path.resolve(repoPath);
 }
 
 function formatRepoDisplayPath(repoPath: string): string {
@@ -204,11 +208,11 @@ export function parseReviewArgs(input: string): ParsedReviewArgs {
   return parsed;
 }
 
-function hasGitMarker(directory: string): boolean {
+export function hasGitMarker(directory: string): boolean {
   return fs.existsSync(path.join(directory, ".git"));
 }
 
-function findAncestorGitRepoMarkers(start: string): string[] {
+export function findAncestorGitRepoMarkers(start: string): string[] {
   const repos: string[] = [];
   let current = path.resolve(start);
   while (true) {
@@ -220,7 +224,21 @@ function findAncestorGitRepoMarkers(start: string): string[] {
   return repos;
 }
 
-function walkChildRepoCandidates(root: string, options: RepoDiscoveryOptions): string[] {
+export function rankDiscoveredRepos(repos: DiscoveredRepo[], recentTargets: Array<{ repoPath: string; reviewedAt: number }> = []): DiscoveredRepo[] {
+  const kindRank = (repo: DiscoveredRepo) => repo.kind === "parent" ? 0 : repo.kind === "current" ? 1 : 2;
+  return [...repos].sort((a, b) => {
+    if (a.dirty !== b.dirty) return a.dirty ? -1 : 1;
+    const aNonDefault = !!a.branch && !!a.defaultBranch && a.branch !== basenameFromPath(a.defaultBranch);
+    const bNonDefault = !!b.branch && !!b.defaultBranch && b.branch !== basenameFromPath(b.defaultBranch);
+    if (aNonDefault !== bNonDefault) return aNonDefault ? -1 : 1;
+    const aRecent = recentTargets.find((target) => target.repoPath === a.repoPath)?.reviewedAt ?? 0;
+    const bRecent = recentTargets.find((target) => target.repoPath === b.repoPath)?.reviewedAt ?? 0;
+    if (aRecent !== bRecent) return bRecent - aRecent;
+    return kindRank(a) - kindRank(b) || a.displayPath.localeCompare(b.displayPath);
+  });
+}
+
+export function walkChildRepoCandidates(root: string, options: RepoDiscoveryOptions): string[] {
   const repos: string[] = [];
 
   const visit = (directory: string, depth: number) => {
@@ -1635,19 +1653,6 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
     return base;
   };
 
-  const rankDiscoveredRepos = (repos: DiscoveredRepo[]): DiscoveredRepo[] => {
-    const kindRank = (repo: DiscoveredRepo) => repo.kind === "parent" ? 0 : repo.kind === "current" ? 1 : 2;
-    return [...repos].sort((a, b) => {
-      if (a.dirty !== b.dirty) return a.dirty ? -1 : 1;
-      const aNonDefault = !!a.branch && !!a.defaultBranch && a.branch !== basenameFromPath(a.defaultBranch);
-      const bNonDefault = !!b.branch && !!b.defaultBranch && b.branch !== basenameFromPath(b.defaultBranch);
-      if (aNonDefault !== bNonDefault) return aNonDefault ? -1 : 1;
-      const aRecent = state.recentTargets?.find((target) => target.repoPath === a.repoPath)?.reviewedAt ?? 0;
-      const bRecent = state.recentTargets?.find((target) => target.repoPath === b.repoPath)?.reviewedAt ?? 0;
-      if (aRecent !== bRecent) return bRecent - aRecent;
-      return kindRank(a) - kindRank(b) || a.displayPath.localeCompare(b.displayPath);
-    });
-  };
 
   const formatRecentHint = (repoPath: string): string | undefined => {
     const reviewedAt = state.recentTargets?.find((target) => target.repoPath === repoPath)?.reviewedAt;
@@ -1744,7 +1749,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
     if (parsedArgs.repoPath) return resolveReviewTarget(parsedArgs.repoPath);
     if (parsedArgs.current) return resolveReviewTarget(".");
 
-    const discovered = rankDiscoveredRepos(await discoverReviewRepos({ maxDepth: parsedArgs.scanDepth }));
+    const discovered = rankDiscoveredRepos(await discoverReviewRepos({ maxDepth: parsedArgs.scanDepth }), state.recentTargets);
     const visibleRepos = parsedArgs.includeClean ? discovered : discovered.filter((repo) => repo.dirty || repo.error);
     const dirtyRepos = discovered.filter((repo) => repo.dirty && !repo.error);
 
