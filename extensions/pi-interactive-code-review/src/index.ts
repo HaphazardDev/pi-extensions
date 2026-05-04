@@ -159,7 +159,8 @@ function formatReviewStatus(theme: ExtensionContext["ui"]["theme"], state: Persi
   const awaiting = countAwaitingThreads(state);
   if (queued === 0 && awaiting === 0) return undefined;
 
-  const segments: string[] = [theme.fg("accent", "review")];
+  const reviewLabel = state.repoDisplayPath && state.repoDisplayPath !== "." ? `review ${state.repoDisplayPath}` : "review";
+  const segments: string[] = [theme.fg("accent", reviewLabel)];
   if (queued > 0) segments.push(theme.fg("accent", formatQueuedThreadCount(queued)));
   if (awaiting > 0) segments.push(theme.fg("warning", formatAwaitingReplyCount(awaiting)));
   return `🧵 ${segments.join(" • ")}`;
@@ -1136,7 +1137,7 @@ class ReviewBrowserComponent {
     const awaiting = countAwaitingThreads(this.state);
 
     const headerParts = [
-      theme.fg("accent", theme.bold("Review")),
+      theme.fg("accent", theme.bold(`Review ${this.snapshot.repoDisplayPath}`)),
       theme.fg("muted", `against ${this.snapshot.baseRef}`),
       theme.fg("muted", `${this.snapshot.files.length} ${this.snapshot.files.length === 1 ? "file" : "files"}`),
       theme.fg(this.uiState.wrapDiff ? "accent" : "dim", `wrap ${this.uiState.wrapDiff ? "on" : "off"}`),
@@ -1144,6 +1145,10 @@ class ReviewBrowserComponent {
     if (queued > 0) headerParts.push(theme.fg("accent", formatQueuedThreadCount(queued)));
     if (awaiting > 0) headerParts.push(theme.fg("warning", formatAwaitingReplyCount(awaiting)));
     lines.push(truncateToWidth(headerParts.join(theme.fg("dim", " • ")), width));
+
+    const additions = this.snapshot.files.reduce((total, candidate) => total + candidate.additions, 0);
+    const deletions = this.snapshot.files.reduce((total, candidate) => total + candidate.deletions, 0);
+    lines.push(truncateToWidth(theme.fg("dim", `${this.snapshot.files.length} ${this.snapshot.files.length === 1 ? "file" : "files"} • +${additions} -${deletions}`), width));
 
     if (!file) {
       lines.push("");
@@ -1586,8 +1591,9 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
 
     await ctx.waitForIdle();
     pi.sendUserMessage(buildDispatchPrompt(snapshot?.baseRef ?? state.baseRef ?? "HEAD", threads));
+    const repoLabel = snapshot?.repoDisplayPath ?? state.repoDisplayPath ?? ".";
     ctx.ui.notify(
-      `Sent ${threads.length} review thread${threads.length === 1 ? "" : "s"}. Reopen /review after the agent responds.`,
+      `Sent ${threads.length} review thread${threads.length === 1 ? "" : "s"} for ${repoLabel}. Reopen /review after the agent responds.`,
       "info",
     );
     return true;
@@ -1654,7 +1660,8 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
         return thread?.state === "responded";
       }).length;
       if (responded > 0) {
-        ctx.ui.notify(`Attached ${responded} review response${responded === 1 ? "" : "s"}.`, "info");
+        const repoLabel = state.repoDisplayPath ?? ".";
+        ctx.ui.notify(`Attached ${responded} review response${responded === 1 ? "" : "s"} for ${repoLabel}.`, "info");
       } else if (trimmedAssistantText.length > 0) {
         ctx.ui.notify("Review reply arrived, but it could not be matched back to a thread.", "warning");
       }
@@ -1689,7 +1696,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
         updateStatus(ctx);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        ctx.ui.notify(`Unable to open review: ${message}`, "error");
+        ctx.ui.notify(`Unable to open review${state.repoDisplayPath ? ` for ${state.repoDisplayPath}` : ""}: ${message}`, "error");
         return;
       }
 
@@ -1711,7 +1718,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
             persistState();
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            ctx.ui.notify(`Refresh failed: ${message}`, "error");
+            ctx.ui.notify(`Refresh failed for ${state.repoDisplayPath ?? "."}: ${message}`, "error");
           }
           continue;
         }

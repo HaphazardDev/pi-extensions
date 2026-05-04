@@ -68,26 +68,26 @@ Allow `/review` to review changes in a git repository that is not necessarily pi
 
 ### Review UI header
 
-- [ ] Update the review header to show the selected repo path.
-- [ ] Include target info in a compact form, for example:
-  - [ ] `Review repos/test-repo against origin/main`
-  - [ ] `feature/agent-work • 7 files • +88 -12`
-- [ ] For the current repo, display either `.` or the current directory basename consistently.
-- [ ] Keep file paths inside the diff relative to the selected repo.
+- [x] Update the review header to show the selected repo path.
+- [x] Include target info in a compact form, for example:
+  - [x] `Review repos/test-repo against origin/main`
+  - [x] `feature/agent-work • 7 files • +88 -12`
+- [x] For the current repo, display either `.` or the current directory basename consistently.
+- [x] Keep file paths inside the diff relative to the selected repo.
 
 ### Status bar
 
-- [ ] Include the review target in status text when queued/awaiting threads exist.
-- [ ] Example: `🧵 review repos/test-repo • 3 queued • 1 awaiting`
-- [ ] Avoid making the status too noisy for the current repo case.
+- [x] Include the review target in status text when queued/awaiting threads exist.
+- [x] Example: `🧵 review repos/test-repo • 3 queued • 1 awaiting`
+- [x] Avoid making the status too noisy for the current repo case.
 
 ### Notifications
 
-- [ ] Include the repo target in important notifications:
-  - [ ] unable to open review
-  - [ ] refresh failed
-  - [ ] sent review threads
-  - [ ] attached review responses
+- [x] Include the repo target in important notifications:
+  - [x] unable to open review
+  - [x] refresh failed
+  - [x] sent review threads
+  - [x] attached review responses
 
 ---
 
