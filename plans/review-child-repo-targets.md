@@ -223,7 +223,7 @@ Allow `/review` to review changes in a git repository that is not necessarily pi
 
 - [x] Track recently reviewed repos in persisted/session state.
 - [x] Place recent targets near the top of the picker.
-- [ ] Show a small recency hint, for example `last reviewed 3m ago`.
+- [x] Show a small recency hint, for example `last reviewed 3m ago`.
 - [x] Decide whether `/review` should default to the last target or only preselect it.
 
 ### Additional command conveniences
@@ -232,14 +232,14 @@ Allow `/review` to review changes in a git repository that is not necessarily pi
 - [x] Add `/review --scan-depth 6` or `/review --scan-depth <n>` for deeper child repo discovery.
 - [x] Consider `/review --include-clean` to show clean child repos in the picker.
 - [x] Consider `/review --current` to force the innermost/current repo and skip parent-repo defaulting.
-- [ ] Consider tab/completion support if pi commands expose completion APIs.
+- [x] Consider tab/completion support if pi commands expose completion APIs.
 
 ### README and help text
 
 - [x] Update README usage examples.
 - [x] Update notes explaining that paths are relative to the selected repo.
-- [ ] Update in-UI help to mention target selection if relevant.
-- [ ] Add troubleshooting notes for child repos and invalid base refs.
+- [x] Update in-UI help to mention target selection if relevant.
+- [x] Add troubleshooting notes for child repos and invalid base refs.
 
 ---
 

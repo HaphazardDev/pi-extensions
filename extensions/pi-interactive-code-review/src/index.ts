@@ -1649,13 +1649,25 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
     });
   };
 
+  const formatRecentHint = (repoPath: string): string | undefined => {
+    const reviewedAt = state.recentTargets?.find((target) => target.repoPath === repoPath)?.reviewedAt;
+    if (!reviewedAt) return undefined;
+    const elapsedSeconds = Math.max(1, Math.floor((Date.now() - reviewedAt) / 1000));
+    if (elapsedSeconds < 60) return `last reviewed ${elapsedSeconds}s ago`;
+    const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+    if (elapsedMinutes < 60) return `last reviewed ${elapsedMinutes}m ago`;
+    const elapsedHours = Math.floor(elapsedMinutes / 60);
+    return `last reviewed ${elapsedHours}h ago`;
+  };
+
   const formatRepoPickerOption = (repo: DiscoveredRepo): string => {
     const summary = repo.error
       ? `error: ${repo.error}`
       : repo.dirty
         ? `${repo.changedFiles} ${repo.changedFiles === 1 ? "file" : "files"}  +${repo.additions} -${repo.deletions}`
         : "clean";
-    return `${repo.displayPath}\t${repo.kind} repo\t${repo.branch || "detached"}\t${summary}`;
+    const recentHint = formatRecentHint(repo.repoPath);
+    return `${repo.displayPath}\t${repo.kind} repo\t${repo.branch || "detached"}\t${summary}${recentHint ? `\t${recentHint}` : ""}`;
   };
 
   const discoverReviewRepos = async (options: Partial<RepoDiscoveryOptions> = {}): Promise<DiscoveredRepo[]> => {
