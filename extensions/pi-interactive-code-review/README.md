@@ -31,7 +31,21 @@ Optionally review against a specific ref instead of the detected default branch:
 ```bash
 /review origin/main
 /review main
+/review --base origin/main
 ```
+
+Review a child repository or another repository path from your current working directory:
+
+```bash
+/review --repo repos/test-repo
+/review --repo repos/test-repo --base origin/main
+```
+
+A single bare argument that points to a git repository directory is treated as the review target; otherwise it is treated as the base ref.
+
+When `/review` discovers exactly one dirty candidate repo under the current working directory, it opens that repo automatically. When multiple dirty repos are discovered, it asks you to select the review target. File paths in the diff and in review prompts are relative to the selected repo root. Clean child repos are hidden by default; use `/review --include-clean` to force the picker and include them. Use `/review --scan-depth <n>` to override the default child repo scan depth of 3. Use `/review --current` to force the innermost/current repo when pi is running inside a nested repo.
+
+If a child repo cannot be opened, check that the path exists, contains a `.git` directory or file, and has a resolvable base ref such as `origin/main`.
 
 ## Controls
 

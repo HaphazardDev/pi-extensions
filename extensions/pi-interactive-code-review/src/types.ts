@@ -33,7 +33,16 @@ export interface DiffFile {
   note?: string;
 }
 
+export interface ReviewTarget {
+  repoPath: string;
+  displayPath: string;
+  baseRef?: string;
+  defaultBranch?: string;
+}
+
 export interface ReviewSnapshot {
+  repoPath: string;
+  repoDisplayPath: string;
   baseRef: string;
   defaultBranch: string;
   files: DiffFile[];
@@ -57,6 +66,9 @@ export interface ReviewThreadTarget {
 
 export interface ReviewThread {
   id: string;
+  repoPath?: string;
+  repoDisplayPath?: string;
+  baseRef?: string;
   filePath: string;
   displayPath: string;
   target: ReviewThreadTarget;
@@ -75,19 +87,30 @@ export interface ReviewThread {
 
 export interface PendingDispatch {
   id: string;
+  repoPath?: string;
+  repoDisplayPath?: string;
   threadIds: string[];
   createdAt: number;
   baseRef: string;
 }
 
+export interface RecentReviewTarget {
+  repoPath: string;
+  repoDisplayPath: string;
+  reviewedAt: number;
+}
+
 export interface PersistedReviewState {
   version: 1;
+  repoPath?: string;
+  repoDisplayPath?: string;
   defaultBranch?: string;
   baseRef?: string;
   nextThreadId: number;
   selection: ReviewSelectionAnchor;
   threads: ReviewThread[];
   pendingDispatches: PendingDispatch[];
+  recentTargets?: RecentReviewTarget[];
 }
 
 export interface ReviewUIState {

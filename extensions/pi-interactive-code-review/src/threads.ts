@@ -25,8 +25,14 @@ function formatThreadPrompt(thread: ReviewThread): string {
 }
 
 export function buildDispatchPrompt(baseRef: string, threads: ReviewThread[]): string {
+  const repoDisplayPath = threads.find((thread) => thread.repoDisplayPath)?.repoDisplayPath;
   const promptParts = [
     `Please address the following interactive code review thread${threads.length === 1 ? "" : "s"} against ${baseRef}.`,
+    ...(repoDisplayPath ? [
+      "",
+      `Repository under review: ${repoDisplayPath}`,
+      "Please interpret file paths relative to that repository root.",
+    ] : []),
     "",
     "For each thread:",
     "- inspect any code you need",

@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -10,7 +12,7 @@ import { parseGitDiff } from "./diff.js";
 import { findDiffSearchMatches, scoreFileJumpMatch } from "./search.js";
 import { applySelectionToSnapshot, captureSelection, clampSelectionToSnapshot, createEmptyState, createUIState, currentFile, currentHunk, currentLine, lineMatchesAnchor } from "./state.js";
 import { buildDispatchPrompt, parseThreadResponses } from "./threads.js";
-import type { DiffFile, DiffHunk, DiffLine, DiffSearchMatch, FileJumpItem, FileJumpMatch, PersistedReviewState, ReviewAction, ReviewSnapshot, ReviewThread, ReviewUIState, ThreadCommentKind, ThreadTargetKind } from "./types.js";
+import type { DiffFile, DiffHunk, DiffLine, DiffSearchMatch, FileJumpItem, FileJumpMatch, PersistedReviewState, ReviewAction, ReviewSnapshot, ReviewTarget, ReviewThread, ReviewUIState, ThreadCommentKind, ThreadTargetKind } from "./types.js";
 
 const REVIEW_STATE_TYPE = "interactive-code-review-state";
 const STATUS_KEY = "interactive-code-review";
@@ -48,12 +50,239 @@ function basenameFromPath(path: string): string {
   return lastSlash >= 0 ? normalized.slice(lastSlash + 1) : normalized;
 }
 
+interface ParsedReviewArgs {
+  repoPath?: string;
+  baseRef?: string;
+  scanDepth?: number;
+  pick?: boolean;
+  includeClean?: boolean;
+  current?: boolean;
+}
+
+export interface RepoDiscoveryOptions {
+  maxDepth: number;
+  maxRepos: number;
+}
+
+export interface DiscoveredRepo {
+  repoPath: string;
+  displayPath: string;
+  kind: "current" | "child" | "parent";
+  branch?: string;
+  defaultBranch?: string;
+  changedFiles: number;
+  additions: number;
+  deletions: number;
+  dirty: boolean;
+  error?: string;
+}
+
+export const DEFAULT_REPO_SCAN_DEPTH = 3;
+export const DEFAULT_REPO_SCAN_LIMIT = 50;
+export const SKIP_DISCOVERY_DIRS = new Set([".git", "node_modules", "dist", "build", ".next", "coverage", "vendor"]);
+
+function shellSplitArgs(input: string): string[] {
+  const args: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | undefined;
+  let escaping = false;
+
+  for (const char of input) {
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+    if (char === "\\" && quote !== "'") {
+      escaping = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = undefined;
+      else current += char;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current.length > 0) {
+        args.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+
+  if (escaping) current += "\\";
+  if (quote) throw new Error("Unclosed quote in /review arguments.");
+  if (current.length > 0) args.push(current);
+  return args;
+}
+
+function looksLikeGitRepoDirectory(candidatePath: string): boolean {
+  try {
+    const stat = fs.statSync(candidatePath);
+    if (!stat.isDirectory()) return false;
+    return fs.existsSync(path.join(candidatePath, ".git"));
+  } catch {
+    return false;
+  }
+}
+
+export function getReviewTargetKey(repoPath: string): string {
+  return path.resolve(repoPath);
+}
+
+function formatRepoDisplayPath(repoPath: string): string {
+  const relative = path.relative(process.cwd(), repoPath) || ".";
+  return relative.split(path.sep).join("/");
+}
+
+export function parseReviewArgs(input: string): ParsedReviewArgs {
+  const tokens = shellSplitArgs(input.trim());
+  const parsed: ParsedReviewArgs = {};
+  const positional: string[] = [];
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]!;
+    if (token === "--repo") {
+      const value = tokens[++i];
+      if (!value) throw new Error("Missing value for --repo.");
+      parsed.repoPath = value;
+      continue;
+    }
+    if (token.startsWith("--repo=")) {
+      parsed.repoPath = token.slice("--repo=".length);
+      continue;
+    }
+    if (token === "--base") {
+      const value = tokens[++i];
+      if (!value) throw new Error("Missing value for --base.");
+      parsed.baseRef = value;
+      continue;
+    }
+    if (token.startsWith("--base=")) {
+      parsed.baseRef = token.slice("--base=".length);
+      continue;
+    }
+    if (token === "--scan-depth") {
+      const value = tokens[++i];
+      if (!value) throw new Error("Missing value for --scan-depth.");
+      parsed.scanDepth = Number(value);
+      if (!Number.isInteger(parsed.scanDepth) || parsed.scanDepth < 0) throw new Error("--scan-depth must be a non-negative integer.");
+      continue;
+    }
+    if (token.startsWith("--scan-depth=")) {
+      parsed.scanDepth = Number(token.slice("--scan-depth=".length));
+      if (!Number.isInteger(parsed.scanDepth) || parsed.scanDepth < 0) throw new Error("--scan-depth must be a non-negative integer.");
+      continue;
+    }
+    if (token === "--pick") {
+      parsed.pick = true;
+      continue;
+    }
+    if (token === "--include-clean") {
+      parsed.includeClean = true;
+      continue;
+    }
+    if (token === "--current") {
+      parsed.current = true;
+      continue;
+    }
+    if (token.startsWith("--")) throw new Error(`Unknown option ${token}.`);
+    positional.push(token);
+  }
+
+  if (positional.length > 1) throw new Error("Too many positional arguments. Use --repo <path> and --base <ref> for clarity.");
+  if (positional.length === 1) {
+    const value = positional[0]!;
+    const absolute = path.resolve(process.cwd(), value);
+    if (!parsed.repoPath && looksLikeGitRepoDirectory(absolute)) parsed.repoPath = value;
+    else if (!parsed.baseRef) parsed.baseRef = value;
+    else throw new Error(`Unexpected positional argument ${value}.`);
+  }
+
+  return parsed;
+}
+
+export function hasGitMarker(directory: string): boolean {
+  return fs.existsSync(path.join(directory, ".git"));
+}
+
+function hasGitFileMarker(directory: string): boolean {
+  try {
+    return fs.statSync(path.join(directory, ".git")).isFile();
+  } catch {
+    return false;
+  }
+}
+
+export function findAncestorGitRepoMarkers(start: string): string[] {
+  const repos: string[] = [];
+  let current = path.resolve(start);
+  while (true) {
+    if (hasGitMarker(current)) repos.push(current);
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return repos;
+}
+
+export function rankDiscoveredRepos(repos: DiscoveredRepo[], recentTargets: Array<{ repoPath: string; reviewedAt: number }> = []): DiscoveredRepo[] {
+  const kindRank = (repo: DiscoveredRepo) => repo.kind === "parent" ? 0 : repo.kind === "current" ? 1 : 2;
+  return [...repos].sort((a, b) => {
+    if (a.dirty !== b.dirty) return a.dirty ? -1 : 1;
+    const aNonDefault = !!a.branch && !!a.defaultBranch && a.branch !== basenameFromPath(a.defaultBranch);
+    const bNonDefault = !!b.branch && !!b.defaultBranch && b.branch !== basenameFromPath(b.defaultBranch);
+    if (aNonDefault !== bNonDefault) return aNonDefault ? -1 : 1;
+    const aRecent = recentTargets.find((target) => target.repoPath === a.repoPath)?.reviewedAt ?? 0;
+    const bRecent = recentTargets.find((target) => target.repoPath === b.repoPath)?.reviewedAt ?? 0;
+    if (aRecent !== bRecent) return bRecent - aRecent;
+    return kindRank(a) - kindRank(b) || a.displayPath.localeCompare(b.displayPath);
+  });
+}
+
+export function walkChildRepoCandidates(root: string, options: RepoDiscoveryOptions): string[] {
+  const repos: string[] = [];
+
+  const visit = (directory: string, depth: number) => {
+    if (repos.length >= options.maxRepos || depth > options.maxDepth) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (repos.length >= options.maxRepos) return;
+      if (!entry.isDirectory()) continue;
+      if (SKIP_DISCOVERY_DIRS.has(entry.name)) continue;
+
+      const childPath = path.join(directory, entry.name);
+      if (hasGitMarker(childPath)) {
+        repos.push(childPath);
+        continue;
+      }
+      visit(childPath, depth + 1);
+    }
+  };
+
+  visit(root, 1);
+  return repos;
+}
+
 function formatReviewStatus(theme: ExtensionContext["ui"]["theme"], state: PersistedReviewState): string | undefined {
   const queued = countQueuedThreads(state);
   const awaiting = countAwaitingThreads(state);
   if (queued === 0 && awaiting === 0) return undefined;
 
-  const segments: string[] = [theme.fg("accent", "review")];
+  const reviewLabel = state.repoDisplayPath && state.repoDisplayPath !== "." ? `review ${state.repoDisplayPath}` : "review";
+  const segments: string[] = [theme.fg("accent", reviewLabel)];
   if (queued > 0) segments.push(theme.fg("accent", formatQueuedThreadCount(queued)));
   if (awaiting > 0) segments.push(theme.fg("warning", formatAwaitingReplyCount(awaiting)));
   return `🧵 ${segments.join(" • ")}`;
@@ -704,6 +933,9 @@ class ReviewBrowserComponent {
     const now = Date.now();
     const thread: ReviewThread = {
       id: `review-${this.state.nextThreadId++}`,
+      repoPath: this.snapshot.repoPath,
+      repoDisplayPath: this.snapshot.repoDisplayPath,
+      baseRef: this.snapshot.baseRef,
       filePath: file.filePath,
       displayPath: file.displayPath,
       target:
@@ -1030,7 +1262,7 @@ class ReviewBrowserComponent {
     const awaiting = countAwaitingThreads(this.state);
 
     const headerParts = [
-      theme.fg("accent", theme.bold("Review")),
+      theme.fg("accent", theme.bold(`Review ${this.snapshot.repoDisplayPath}`)),
       theme.fg("muted", `against ${this.snapshot.baseRef}`),
       theme.fg("muted", `${this.snapshot.files.length} ${this.snapshot.files.length === 1 ? "file" : "files"}`),
       theme.fg(this.uiState.wrapDiff ? "accent" : "dim", `wrap ${this.uiState.wrapDiff ? "on" : "off"}`),
@@ -1038,6 +1270,10 @@ class ReviewBrowserComponent {
     if (queued > 0) headerParts.push(theme.fg("accent", formatQueuedThreadCount(queued)));
     if (awaiting > 0) headerParts.push(theme.fg("warning", formatAwaitingReplyCount(awaiting)));
     lines.push(truncateToWidth(headerParts.join(theme.fg("dim", " • ")), width));
+
+    const additions = this.snapshot.files.reduce((total, candidate) => total + candidate.additions, 0);
+    const deletions = this.snapshot.files.reduce((total, candidate) => total + candidate.deletions, 0);
+    lines.push(truncateToWidth(theme.fg("dim", `${this.snapshot.files.length} ${this.snapshot.files.length === 1 ? "file" : "files"} • +${additions} -${deletions}`), width));
 
     if (!file) {
       lines.push("");
@@ -1315,6 +1551,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
   let state = createEmptyState();
   const uiState = createUIState();
   let snapshot: ReviewSnapshot | undefined;
+  let discoveryCache: { key: string; repos: DiscoveredRepo[] } | undefined;
 
   const persistState = () => {
     state.selection = captureSelection(snapshot, uiState);
@@ -1339,39 +1576,39 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
     updateStatus(ctx);
   };
 
-  const execGit = async (args: string[]) => {
-    const result = await pi.exec("git", args);
+  const execGit = async (target: ReviewTarget, args: string[]) => {
+    const result = await pi.exec("git", ["-C", target.repoPath, ...args]);
     return result;
   };
 
-  const tryGit = async (args: string[]): Promise<string | undefined> => {
-    const result = await execGit(args);
+  const tryGit = async (target: ReviewTarget, args: string[]): Promise<string | undefined> => {
+    const result = await execGit(target, args);
     if (result.code !== 0) return undefined;
     const text = result.stdout.trim();
     return text.length > 0 ? text : undefined;
   };
 
-  const resolveDefaultBranch = async (): Promise<string> => {
-    const remoteHead = await tryGit(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
+  const resolveDefaultBranch = async (target: ReviewTarget): Promise<string> => {
+    const remoteHead = await tryGit(target, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
     if (remoteHead) return remoteHead;
 
-    const remoteMain = await tryGit(["rev-parse", "--verify", "refs/remotes/origin/main"]);
+    const remoteMain = await tryGit(target, ["rev-parse", "--verify", "refs/remotes/origin/main"]);
     if (remoteMain) return "origin/main";
 
-    const remoteMaster = await tryGit(["rev-parse", "--verify", "refs/remotes/origin/master"]);
+    const remoteMaster = await tryGit(target, ["rev-parse", "--verify", "refs/remotes/origin/master"]);
     if (remoteMaster) return "origin/master";
 
-    const localMain = await tryGit(["rev-parse", "--verify", "main"]);
+    const localMain = await tryGit(target, ["rev-parse", "--verify", "main"]);
     if (localMain) return "main";
 
-    const localMaster = await tryGit(["rev-parse", "--verify", "master"]);
+    const localMaster = await tryGit(target, ["rev-parse", "--verify", "master"]);
     if (localMaster) return "master";
 
     throw new Error("Could not determine a default branch. Try /review <base-ref>.");
   };
 
-  const getUntrackedPaths = async (): Promise<string[]> => {
-    const result = await execGit(["ls-files", "--others", "--exclude-standard", "-z"]);
+  const getUntrackedPaths = async (target: ReviewTarget): Promise<string[]> => {
+    const result = await execGit(target, ["ls-files", "--others", "--exclude-standard", "-z"]);
     if (result.code !== 0) {
       throw new Error(result.stderr.trim() || "Failed to list untracked files.");
     }
@@ -1382,46 +1619,242 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
       .filter((path) => path.length > 0);
   };
 
-  const buildUntrackedDiff = async (path: string): Promise<string> => {
-    const result = await execGit(["diff", "--no-index", "--unified=3", "--no-color", "/dev/null", path]);
+  const buildUntrackedDiff = async (target: ReviewTarget, path: string): Promise<string> => {
+    const result = await execGit(target, ["diff", "--no-index", "--unified=3", "--no-color", "/dev/null", path]);
     if (result.code !== 0 && result.code !== 1) {
       throw new Error(result.stderr.trim() || `Failed to diff untracked file ${path}.`);
     }
     return result.stdout;
   };
 
-  const buildSnapshot = async (requestedBaseRef?: string): Promise<ReviewSnapshot> => {
-    const defaultBranch = state.defaultBranch || (requestedBaseRef?.trim() ? undefined : await resolveDefaultBranch());
-    const baseRef = requestedBaseRef?.trim() || state.baseRef || state.defaultBranch || defaultBranch;
-    if (!baseRef) {
-      throw new Error("Could not determine a review base. Try /review <base-ref>.");
-    }
-    const verify = await execGit(["rev-parse", "--verify", baseRef]);
-    if (verify.code !== 0) {
-      const reason = verify.stderr.trim() || `Unable to resolve ${baseRef}`;
-      throw new Error(reason);
+  const summarizeDiscoveredRepo = async (repoPath: string, kind: DiscoveredRepo["kind"]): Promise<DiscoveredRepo> => {
+    const target: ReviewTarget = { repoPath, displayPath: formatRepoDisplayPath(repoPath) };
+    const base: DiscoveredRepo = {
+      repoPath,
+      displayPath: target.displayPath,
+      kind,
+      changedFiles: 0,
+      additions: 0,
+      deletions: 0,
+      dirty: false,
+    };
+
+    try {
+      base.branch = await tryGit(target, ["branch", "--show-current"]);
+      base.defaultBranch = await resolveDefaultBranch(target).catch(() => undefined);
+
+      const status = await execGit(target, ["status", "--porcelain"]);
+      if (status.code !== 0) throw new Error(status.stderr.trim() || "git status failed");
+      base.dirty = status.stdout.trim().length > 0;
+      base.changedFiles = status.stdout.split("\n").filter((line) => line.trim().length > 0).length;
+
+      const shortstat = await execGit(target, ["diff", "--shortstat", "HEAD"]);
+      if (shortstat.code === 0) {
+        const text = shortstat.stdout.trim();
+        base.additions = Number(/(\d+) insertion/.exec(text)?.[1] ?? 0);
+        base.deletions = Number(/(\d+) deletion/.exec(text)?.[1] ?? 0);
+      }
+    } catch (error) {
+      base.error = error instanceof Error ? error.message : String(error);
     }
 
-    const mergeBase = await execGit(["merge-base", baseRef, "HEAD"]);
+    return base;
+  };
+
+
+  const formatRecentHint = (repoPath: string): string | undefined => {
+    const reviewedAt = state.recentTargets?.find((target) => target.repoPath === repoPath)?.reviewedAt;
+    if (!reviewedAt) return undefined;
+    const elapsedSeconds = Math.max(1, Math.floor((Date.now() - reviewedAt) / 1000));
+    if (elapsedSeconds < 60) return `last reviewed ${elapsedSeconds}s ago`;
+    const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+    if (elapsedMinutes < 60) return `last reviewed ${elapsedMinutes}m ago`;
+    const elapsedHours = Math.floor(elapsedMinutes / 60);
+    return `last reviewed ${elapsedHours}h ago`;
+  };
+
+  const formatRepoPickerOptions = (repos: DiscoveredRepo[]): string[] => {
+    const labels = repos.map((repo) => ({
+      repo,
+      path: repo.displayPath,
+      kind: `${repo.kind} repo`,
+      branch: repo.branch || "detached",
+      summary: repo.error
+        ? `! ${repo.error}`
+        : repo.dirty
+          ? `● ${repo.changedFiles} ${repo.changedFiles === 1 ? "file" : "files"}  +${repo.additions} -${repo.deletions}`
+          : "○ clean",
+      recentHint: formatRecentHint(repo.repoPath),
+    }));
+    const pathWidth = Math.min(40, Math.max(1, ...labels.map((label) => label.path.length)));
+    const kindWidth = Math.max(1, ...labels.map((label) => label.kind.length));
+    const branchWidth = Math.min(24, Math.max(1, ...labels.map((label) => label.branch.length)));
+
+    return labels.map((label) => {
+      const displayPath = label.path.length > pathWidth ? `…${label.path.slice(-pathWidth + 1)}` : label.path;
+      const branch = label.branch.length > branchWidth ? `…${label.branch.slice(-branchWidth + 1)}` : label.branch;
+      const columns = [
+        displayPath.padEnd(pathWidth),
+        label.kind.padEnd(kindWidth),
+        branch.padEnd(branchWidth),
+        label.summary,
+      ];
+      if (label.recentHint) columns.push(label.recentHint);
+      return columns.join("  ");
+    });
+  };
+
+  const discoverReviewRepos = async (options: Partial<RepoDiscoveryOptions> = {}): Promise<DiscoveredRepo[]> => {
+    const discoveryOptions: RepoDiscoveryOptions = {
+      maxDepth: options.maxDepth ?? DEFAULT_REPO_SCAN_DEPTH,
+      maxRepos: options.maxRepos ?? DEFAULT_REPO_SCAN_LIMIT,
+    };
+    const cwd = process.cwd();
+    const cacheKey = `${cwd}:${discoveryOptions.maxDepth}:${discoveryOptions.maxRepos}`;
+    if (discoveryCache?.key === cacheKey) return discoveryCache.repos;
+
+    const repos = new Map<string, DiscoveredRepo["kind"]>();
+
+    const currentTarget = await resolveReviewTarget(".").catch(() => undefined);
+    if (currentTarget) repos.set(currentTarget.repoPath, "current");
+
+    const currentIsLinkedWorktree = currentTarget ? hasGitFileMarker(currentTarget.repoPath) : false;
+    if (!currentIsLinkedWorktree) {
+      for (const ancestor of findAncestorGitRepoMarkers(path.dirname(cwd))) {
+        const target = await resolveReviewTarget(ancestor).catch(() => undefined);
+        if (target && !repos.has(target.repoPath)) repos.set(target.repoPath, "parent");
+      }
+    }
+
+    const outerRoot = currentIsLinkedWorktree ? { code: 1, stdout: "" } : await pi.exec("git", ["rev-parse", "--show-superproject-working-tree"]);
+    if (outerRoot.code === 0 && outerRoot.stdout.trim()) {
+      const parentPath = path.resolve(outerRoot.stdout.trim());
+      const target = await resolveReviewTarget(parentPath).catch(() => undefined);
+      if (target && !repos.has(target.repoPath)) repos.set(target.repoPath, "parent");
+    }
+
+    for (const candidate of walkChildRepoCandidates(cwd, discoveryOptions)) {
+      const target = await resolveReviewTarget(candidate).catch(() => undefined);
+      if (!target) continue;
+      if (!repos.has(target.repoPath)) repos.set(target.repoPath, "child");
+      if (repos.size >= discoveryOptions.maxRepos) break;
+    }
+
+    const summaries: DiscoveredRepo[] = [];
+    for (const [repoPath, kind] of repos) {
+      summaries.push(await summarizeDiscoveredRepo(repoPath, kind));
+    }
+    discoveryCache = { key: cacheKey, repos: summaries };
+    return summaries;
+  };
+
+  const resolveReviewTarget = async (repoPath?: string): Promise<ReviewTarget> => {
+    const requestedPath = path.resolve(process.cwd(), repoPath || state.repoPath || ".");
+    if (!fs.existsSync(requestedPath)) throw new Error(`Review target does not exist: ${repoPath || requestedPath}`);
+    if (!fs.statSync(requestedPath).isDirectory()) throw new Error(`Review target is not a directory: ${repoPath || requestedPath}`);
+
+    const provisional: ReviewTarget = {
+      repoPath: requestedPath,
+      displayPath: formatRepoDisplayPath(requestedPath),
+    };
+    const root = await execGit(provisional, ["rev-parse", "--show-toplevel"]);
+    if (root.code !== 0) {
+      throw new Error(root.stderr.trim() || `Review target is not a git repository: ${provisional.displayPath}`);
+    }
+
+    const repoRoot = path.resolve(root.stdout.trim());
+    return {
+      repoPath: repoRoot,
+      displayPath: formatRepoDisplayPath(repoRoot),
+    };
+  };
+
+  const rememberReviewTarget = (targetSnapshot: ReviewSnapshot) => {
+    const existing = state.recentTargets?.filter((target) => target.repoPath !== targetSnapshot.repoPath) ?? [];
+    state.recentTargets = [
+      { repoPath: targetSnapshot.repoPath, repoDisplayPath: targetSnapshot.repoDisplayPath, reviewedAt: Date.now() },
+      ...existing,
+    ].slice(0, 10);
+  };
+
+  const chooseReviewTarget = async (parsedArgs: ParsedReviewArgs, ctx: ExtensionCommandContext): Promise<ReviewTarget> => {
+    if (parsedArgs.repoPath) return resolveReviewTarget(parsedArgs.repoPath);
+    if (parsedArgs.current) return resolveReviewTarget(".");
+    if (parsedArgs.baseRef) return resolveReviewTarget(".");
+
+    const discovered = rankDiscoveredRepos(await discoverReviewRepos({ maxDepth: parsedArgs.scanDepth }), state.recentTargets);
+    const visibleRepos = parsedArgs.includeClean ? discovered : discovered.filter((repo) => repo.dirty || repo.error);
+    const dirtyRepos = discovered.filter((repo) => repo.dirty && !repo.error);
+
+    if ((parsedArgs.pick || parsedArgs.includeClean) && visibleRepos.length > 0) {
+      const options = formatRepoPickerOptions(visibleRepos);
+      const choice = await ctx.ui.select("Select review target", options);
+      if (!choice) throw new Error("Review target selection cancelled.");
+      const selected = visibleRepos[options.indexOf(choice)];
+      if (!selected) throw new Error("Review target selection failed.");
+      return { repoPath: selected.repoPath, displayPath: selected.displayPath };
+    }
+
+    if (!parsedArgs.baseRef && dirtyRepos.length === 1) {
+      const selected = dirtyRepos[0]!;
+      return { repoPath: selected.repoPath, displayPath: selected.displayPath };
+    }
+
+    if (!parsedArgs.baseRef && dirtyRepos.length > 1) {
+      const options = formatRepoPickerOptions(dirtyRepos);
+      const choice = await ctx.ui.select("Select review target", options);
+      if (!choice) throw new Error("Review target selection cancelled.");
+      const selected = dirtyRepos[options.indexOf(choice)];
+      if (!selected) throw new Error("Review target selection failed.");
+      return { repoPath: selected.repoPath, displayPath: selected.displayPath };
+    }
+
+    const defaultRepo = discovered.find((repo) => repo.kind === "parent") ?? discovered.find((repo) => repo.kind === "current");
+    if (defaultRepo) return { repoPath: defaultRepo.repoPath, displayPath: defaultRepo.displayPath };
+    return resolveReviewTarget(".");
+  };
+
+  const buildSnapshot = async (target: ReviewTarget, requestedBaseRef?: string): Promise<ReviewSnapshot> => {
+    const sameRepoAsState = state.repoPath === target.repoPath;
+    const defaultBranch = sameRepoAsState && state.defaultBranch
+      ? state.defaultBranch
+      : (requestedBaseRef?.trim() ? undefined : await resolveDefaultBranch(target));
+    const baseRef = requestedBaseRef?.trim() || (sameRepoAsState ? state.baseRef : undefined) || defaultBranch;
+    if (!baseRef) {
+      throw new Error("Could not determine a review base. Try /review --base <base-ref>.");
+    }
+    const verify = await execGit(target, ["rev-parse", "--verify", baseRef]);
+    if (verify.code !== 0) {
+      const reason = verify.stderr.trim() || `Unable to resolve ${baseRef}`;
+      throw new Error(`Unable to resolve base ref ${baseRef} in ${target.displayPath}: ${reason}`);
+    }
+
+    const mergeBase = await execGit(target, ["merge-base", baseRef, "HEAD"]);
     if (mergeBase.code !== 0) {
-      throw new Error(mergeBase.stderr.trim() || `Unable to compute merge-base for ${baseRef} and HEAD`);
+      throw new Error(mergeBase.stderr.trim() || `Unable to compute merge-base for ${baseRef} and HEAD in ${target.displayPath}`);
     }
 
     const mergeBaseSha = mergeBase.stdout.trim();
-    const trackedDiff = await execGit(["diff", "--unified=3", "--no-color", "--find-renames", mergeBaseSha]);
+    const trackedDiff = await execGit(target, ["diff", "--unified=3", "--no-color", "--find-renames", mergeBaseSha]);
     if (trackedDiff.code !== 0) {
-      throw new Error(trackedDiff.stderr.trim() || `git diff failed for ${mergeBaseSha}`);
+      throw new Error(trackedDiff.stderr.trim() || `git diff failed for ${mergeBaseSha} in ${target.displayPath}`);
     }
 
-    const untrackedPaths = await getUntrackedPaths();
+    const untrackedPaths = await getUntrackedPaths(target);
     const untrackedDiffs: string[] = [];
     for (const path of untrackedPaths) {
-      untrackedDiffs.push(await buildUntrackedDiff(path));
+      untrackedDiffs.push(await buildUntrackedDiff(target, path));
     }
 
     const combinedDiff = [trackedDiff.stdout, ...untrackedDiffs].filter((chunk) => chunk.trim().length > 0).join("\n");
     const files = parseGitDiff(combinedDiff);
-    return { baseRef, defaultBranch: defaultBranch ?? baseRef, files };
+    return {
+      repoPath: target.repoPath,
+      repoDisplayPath: target.displayPath,
+      baseRef,
+      defaultBranch: defaultBranch ?? baseRef,
+      files,
+    };
   };
 
   const dispatchThreads = async (threads: ReviewThread[], ctx: ExtensionCommandContext) => {
@@ -1440,6 +1873,8 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
 
     state.pendingDispatches.push({
       id: dispatchId,
+      repoPath: snapshot?.repoPath ?? state.repoPath,
+      repoDisplayPath: snapshot?.repoDisplayPath ?? state.repoDisplayPath,
       threadIds: threads.map((thread) => thread.id),
       createdAt: now,
       baseRef: snapshot?.baseRef ?? state.baseRef ?? state.defaultBranch ?? "HEAD",
@@ -1450,8 +1885,9 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
 
     await ctx.waitForIdle();
     pi.sendUserMessage(buildDispatchPrompt(snapshot?.baseRef ?? state.baseRef ?? "HEAD", threads));
+    const repoLabel = snapshot?.repoDisplayPath ?? state.repoDisplayPath ?? ".";
     ctx.ui.notify(
-      `Sent ${threads.length} review thread${threads.length === 1 ? "" : "s"}. Reopen /review after the agent responds.`,
+      `Sent ${threads.length} review thread${threads.length === 1 ? "" : "s"} for ${repoLabel}. Reopen /review after the agent responds.`,
       "info",
     );
     return true;
@@ -1486,7 +1922,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
     const now = Date.now();
 
     for (const threadId of pending.threadIds) {
-      const thread = state.threads.find((candidate) => candidate.id === threadId);
+      const thread = state.threads.find((candidate) => candidate.id === threadId && (!pending.repoPath || !candidate.repoPath || candidate.repoPath === pending.repoPath));
       if (!thread) continue;
 
       const response = parsed.get(threadId);
@@ -1514,11 +1950,12 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
 
     if (ctx.hasUI) {
       const responded = pending.threadIds.filter((threadId) => {
-        const thread = state.threads.find((candidate) => candidate.id === threadId);
+        const thread = state.threads.find((candidate) => candidate.id === threadId && (!pending.repoPath || !candidate.repoPath || candidate.repoPath === pending.repoPath));
         return thread?.state === "responded";
       }).length;
       if (responded > 0) {
-        ctx.ui.notify(`Attached ${responded} review response${responded === 1 ? "" : "s"}.`, "info");
+        const repoLabel = state.repoDisplayPath ?? ".";
+        ctx.ui.notify(`Attached ${responded} review response${responded === 1 ? "" : "s"} for ${repoLabel}.`, "info");
       } else if (trimmedAssistantText.length > 0) {
         ctx.ui.notify("Review reply arrived, but it could not be matched back to a thread.", "warning");
       }
@@ -1533,11 +1970,32 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
         return;
       }
 
-      const requestedBaseRef = args.trim() || undefined;
+      let requestedBaseRef: string | undefined;
+      let target: ReviewTarget;
 
       try {
-        snapshot = await buildSnapshot(requestedBaseRef);
+        const parsedArgs = parseReviewArgs(args);
+        requestedBaseRef = parsedArgs.baseRef;
+        target = await chooseReviewTarget(parsedArgs, ctx);
+        const previousRepoPath = state.repoPath;
+        snapshot = await buildSnapshot(target, requestedBaseRef);
+        if (previousRepoPath && previousRepoPath !== snapshot.repoPath) state.selection = {};
+        for (const thread of state.threads) {
+          if (!thread.repoPath) {
+            thread.repoPath = snapshot.repoPath;
+            thread.repoDisplayPath = snapshot.repoDisplayPath;
+          }
+        }
+        for (const dispatch of state.pendingDispatches) {
+          if (!dispatch.repoPath) {
+            dispatch.repoPath = snapshot.repoPath;
+            dispatch.repoDisplayPath = snapshot.repoDisplayPath;
+          }
+        }
+        state.repoPath = snapshot.repoPath;
+        state.repoDisplayPath = snapshot.repoDisplayPath;
         state.baseRef = snapshot.baseRef;
+        rememberReviewTarget(snapshot);
         state.defaultBranch = snapshot.defaultBranch;
         applySelectionToSnapshot(snapshot, uiState, state.selection);
         ensureFileSelected(snapshot, uiState);
@@ -1545,7 +2003,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
         updateStatus(ctx);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        ctx.ui.notify(`Unable to open review: ${message}`, "error");
+        ctx.ui.notify(`Unable to open review${state.repoDisplayPath ? ` for ${state.repoDisplayPath}` : ""}: ${message}`, "error");
         return;
       }
 
@@ -1561,12 +2019,13 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
 
         if (action.type === "refresh") {
           try {
-            snapshot = await buildSnapshot(requestedBaseRef ?? state.baseRef);
+            const refreshTarget = await resolveReviewTarget(state.repoPath);
+            snapshot = await buildSnapshot(refreshTarget, requestedBaseRef ?? state.baseRef);
             applySelectionToSnapshot(snapshot, uiState, state.selection);
             persistState();
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            ctx.ui.notify(`Refresh failed: ${message}`, "error");
+            ctx.ui.notify(`Refresh failed for ${state.repoDisplayPath ?? "."}: ${message}`, "error");
           }
           continue;
         }
@@ -1578,7 +2037,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
 
         if (action.type === "dispatch-threads") {
           const threads = action.threadIds
-            .map((threadId) => state.threads.find((thread) => thread.id === threadId))
+            .map((threadId) => state.threads.find((thread) => thread.id === threadId && (!state.repoPath || !thread.repoPath || thread.repoPath === state.repoPath)))
             .filter((thread): thread is ReviewThread => !!thread);
           if (threads.length === 0) continue;
 
@@ -1589,7 +2048,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
 
         if (action.type === "delete-thread") {
           const visibleThreads = action.visibleThreadIds
-            .map((threadId) => state.threads.find((thread) => thread.id === threadId))
+            .map((threadId) => state.threads.find((thread) => thread.id === threadId && (!state.repoPath || !thread.repoPath || thread.repoPath === state.repoPath)))
             .filter((thread): thread is ReviewThread => !!thread);
           if (visibleThreads.length === 0) {
             ctx.ui.notify("There are no visible review comments to delete here.", "warning");
@@ -1622,7 +2081,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
         }
 
         if (action.type === "send-batch") {
-          const queuedThreads = state.threads.filter((thread) => thread.state === "queued");
+          const queuedThreads = state.threads.filter((thread) => thread.state === "queued" && (!state.repoPath || !thread.repoPath || thread.repoPath === state.repoPath));
           if (queuedThreads.length === 0) {
             ctx.ui.notify("There are no queued review threads to send.", "warning");
             continue;

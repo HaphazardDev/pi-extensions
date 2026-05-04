@@ -53,12 +53,20 @@ export function threadLocationLabel(thread: ReviewThread): string {
   return "line";
 }
 
+function threadBelongsToActiveRepo(state: PersistedReviewState, thread: ReviewThread): boolean {
+  return !state.repoPath || !thread.repoPath || thread.repoPath === state.repoPath;
+}
+
+function activeThreads(state: PersistedReviewState): ReviewThread[] {
+  return state.threads.filter((thread) => threadBelongsToActiveRepo(state, thread));
+}
+
 export function countQueuedThreads(state: PersistedReviewState): number {
-  return state.threads.filter((thread) => thread.state === "queued").length;
+  return activeThreads(state).filter((thread) => thread.state === "queued").length;
 }
 
 export function countAwaitingThreads(state: PersistedReviewState): number {
-  return state.threads.filter((thread) => thread.state === "submitted").length;
+  return activeThreads(state).filter((thread) => thread.state === "submitted").length;
 }
 
 export function matchingThreadScore(
@@ -84,7 +92,7 @@ export function getThreadsForCurrentView(
   hunk: DiffHunk | undefined,
   line: DiffLine | undefined,
 ): ReviewThread[] {
-  return state.threads
+  return activeThreads(state)
     .map((thread) => ({ thread, score: matchingThreadScore(thread, file, hunk, line) }))
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score || b.thread.createdAt - a.thread.createdAt)
@@ -92,15 +100,15 @@ export function getThreadsForCurrentView(
 }
 
 export function countThreadsForLine(state: PersistedReviewState, file: DiffFile, hunk: DiffHunk, line: DiffLine): number {
-  return state.threads.filter((thread) => matchingThreadScore(thread, file, hunk, line) === 3).length;
+  return activeThreads(state).filter((thread) => matchingThreadScore(thread, file, hunk, line) === 3).length;
 }
 
 export function countThreadsForHunk(state: PersistedReviewState, file: DiffFile, hunk: DiffHunk): number {
-  return state.threads.filter((thread) => matchingThreadScore(thread, file, hunk, undefined) >= 2).length;
+  return activeThreads(state).filter((thread) => matchingThreadScore(thread, file, hunk, undefined) >= 2).length;
 }
 
 export function countThreadsForFile(state: PersistedReviewState, file: DiffFile): number {
-  return state.threads.filter((thread) => matchingThreadScore(thread, file, undefined, undefined) >= 1).length;
+  return activeThreads(state).filter((thread) => matchingThreadScore(thread, file, undefined, undefined) >= 1).length;
 }
 
 export function renderWrapped(text: string, width: number, lines: string[], indent = "") {
