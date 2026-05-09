@@ -1,7 +1,7 @@
-import { setText } from "@mariozechner/clipboard";
-import type { AssistantMessage } from "@mariozechner/pi-ai";
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { Key, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
+import clipboard from "clipboardy";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 
 const extensionConfig = {
   showStatusHint: true,
@@ -304,7 +304,7 @@ function getAllBlocksCopiedMessage(blockCount: number, fenced: boolean): string 
 export default function piCopyCodeBlock(pi: ExtensionAPI) {
   async function copyTextToClipboard(ctx: CopyContext, text: string, message: string): Promise<void> {
     try {
-      await setText(text);
+      await clipboard.write(text);
       notify(ctx, message, "info");
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

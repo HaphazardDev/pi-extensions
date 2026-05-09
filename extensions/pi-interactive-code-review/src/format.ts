@@ -1,5 +1,5 @@
-import type { Theme } from "@mariozechner/pi-coding-agent";
-import { type EditorTheme, wrapTextWithAnsi, truncateToWidth } from "@mariozechner/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { type EditorTheme, wrapTextWithAnsi, truncateToWidth } from "@earendil-works/pi-tui";
 import type { DiffFile, DiffHunk, DiffLine, PersistedReviewState, ReviewThread, ThreadCommentKind } from "./types.js";
 import { lineMatchesAnchor } from "./state.js";
 

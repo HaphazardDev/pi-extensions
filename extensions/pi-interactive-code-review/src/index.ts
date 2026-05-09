@@ -5,8 +5,8 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
   Theme,
-} from "@mariozechner/pi-coding-agent";
-import { Editor, Key, matchesKey, SelectList, type SelectItem, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-coding-agent";
+import { Editor, Key, matchesKey, SelectList, type SelectItem, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { buildFileExcerpt, buildHunkExcerpt, buildLineExcerpt, countAwaitingThreads, countQueuedThreads, countThreadsForFile, countThreadsForHunk, countThreadsForLine, createEditorTheme, formatAwaitingReplyCount, formatCount, formatFileChangeSummary, formatFileJumpDescription, formatQueuedThreadCount, getThreadsForCurrentView, highlightMatchedCharacters, inferCommentKind, lineLabel, renderWrapped, threadLocationLabel, threadStatusColor, threadStatusText } from "./format.js";
 import { parseGitDiff } from "./diff.js";
 import { findDiffSearchMatches, scoreFileJumpMatch } from "./search.js";
