@@ -1,6 +1,6 @@
 {
   "name": "@haphazarddev/pi-vim-quit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A tiny pi extension that quits when you type :q, :qa, or :wq.",
   "type": "module",
   "license": "MIT",

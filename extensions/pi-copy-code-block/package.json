@@ -1,6 +1,6 @@
 {
   "name": "@haphazarddev/pi-copy-code-block",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A pi extension that copies code blocks from the latest assistant message to the clipboard.",
   "type": "module",
   "license": "MIT",
