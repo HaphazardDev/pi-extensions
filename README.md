@@ -114,4 +114,6 @@ Prefer npm trusted publishing with GitHub Actions OIDC. This workflow already in
 
 If you are not using trusted publishing yet, you can instead provide an `NPM_TOKEN` GitHub Actions secret.
 
+To ensure CI runs on the auto-generated `changeset-release/*` PRs, also configure a `RELEASE_GITHUB_TOKEN` secret (PAT or GitHub App installation token) with repository `Contents: Read and write` and `Pull requests: Read and write`. The release workflow falls back to `GITHUB_TOKEN`, but that fallback will not trigger downstream workflows for release PR updates.
+
 The workflow is defined in `.github/workflows/release.yml`.
