@@ -1,6 +1,6 @@
 {
   "name": "@haphazarddev/pi-ask-user-question",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A pi extension that adds an ask_user_question tool for collecting clarification, confirmation, and input through the UI.",
   "type": "module",
   "license": "MIT",
