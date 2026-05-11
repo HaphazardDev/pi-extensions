@@ -90,6 +90,12 @@ function getPreview(code: string): string {
   return lines.length > 1 ? `${linePreview} ⏎ …` : linePreview;
 }
 
+function normalizeExtractedCode(code: string): string {
+  // The newline immediately before the closing fence is Markdown structure, not
+  // usually part of the code users expect to paste/run.
+  return code.replace(/\n$/, "");
+}
+
 function extractCodeBlocks(text: string): CodeBlock[] {
   const extracted: Array<Pick<CodeBlock, "language" | "code">> = [];
   const fencePattern = /^```([^\n`]*)\r?\n([\s\S]*?)^```[ \t]*$/gm;
@@ -98,7 +104,7 @@ function extractCodeBlocks(text: string): CodeBlock[] {
   while (match) {
     const infoString = match[1]?.trim() ?? "";
     const language = infoString.split(/\s+/)[0] || "text";
-    const code = match[2]?.replace(/\r\n/g, "\n") ?? "";
+    const code = normalizeExtractedCode(match[2]?.replace(/\r\n/g, "\n") ?? "");
 
     extracted.push({ language, code });
     match = fencePattern.exec(text);
