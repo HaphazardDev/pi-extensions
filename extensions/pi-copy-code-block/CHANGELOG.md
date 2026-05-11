@@ -1,5 +1,11 @@
 # @haphazarddev/pi-copy-code-block
 
+## 0.2.1
+
+### Patch Changes
+
+- 1121430: Remove the extra trailing newline when copying code blocks so single-line commands paste cleanly.
+
 ## 0.2.0
 
 ### Minor Changes
