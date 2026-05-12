@@ -96,7 +96,7 @@ function normalizeExtractedCode(code: string): string {
   return code.replace(/\n$/, "");
 }
 
-function extractCodeBlocks(text: string): CodeBlock[] {
+export function extractCodeBlocks(text: string): CodeBlock[] {
   const extracted: Array<Pick<CodeBlock, "language" | "code">> = [];
   const fencePattern = /^```([^\n`]*)\r?\n([\s\S]*?)^```[ \t]*$/gm;
 
@@ -118,7 +118,7 @@ function extractCodeBlocks(text: string): CodeBlock[] {
   }));
 }
 
-function parseCopyRequest(input?: string): { request?: ParsedCopyRequest; error?: string } {
+export function parseCopyRequest(input?: string): { request?: ParsedCopyRequest; error?: string } {
   const tokens = (input ?? "")
     .trim()
     .split(/\s+/)
@@ -156,7 +156,7 @@ function parseCopyRequest(input?: string): { request?: ParsedCopyRequest; error?
   return { request: { kind: "single", fenced, selector: token } };
 }
 
-function resolveRequestedBlock(selector: string | undefined, blocks: CodeBlock[]) {
+export function resolveRequestedBlock(selector: string | undefined, blocks: CodeBlock[]) {
   const normalized = selector?.trim().toLowerCase();
 
   if (!normalized) {
@@ -177,7 +177,7 @@ function resolveRequestedBlock(selector: string | undefined, blocks: CodeBlock[]
   return { error: `Unknown code block selector "${selector}". Use a number, first/f, or last/l.` };
 }
 
-function formatSingleBlockForClipboard(block: CodeBlock, fenced: boolean): string {
+export function formatSingleBlockForClipboard(block: CodeBlock, fenced: boolean): string {
   if (!fenced) return block.code;
 
   const body = block.code.endsWith("\n") ? block.code : `${block.code}\n`;
@@ -185,7 +185,7 @@ function formatSingleBlockForClipboard(block: CodeBlock, fenced: boolean): strin
   return `\`\`\`${language}\n${body}\`\`\``;
 }
 
-function formatAllBlocksForClipboard(blocks: CodeBlock[], fenced: boolean): string {
+export function formatAllBlocksForClipboard(blocks: CodeBlock[], fenced: boolean): string {
   return blocks.map((block) => formatSingleBlockForClipboard(block, fenced)).join(extensionConfig.copyAllSeparator);
 }
 
