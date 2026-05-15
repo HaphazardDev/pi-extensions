@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  },
+  "exclude": [
+    "extensions/**/test/**/*.ts",
+    "extensions/**/*.test.ts",
+    "test-utils/**/*.ts"
+  ]
+}
