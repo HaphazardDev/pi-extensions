@@ -19,15 +19,17 @@
     "changeset": "changeset",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "pack:all": "npm pack --workspaces --dry-run",
+    "pack:all": "npm run build && npm pack --workspaces --dry-run",
     "ci": "npm run typecheck && npm run test && npm run pack:all",
     "version-packages": "changeset version",
-    "release": "changeset publish",
+    "release": "npm run build && changeset publish",
     "release:status": "changeset status --verbose",
-    "pack:pi-vim-quit": "npm pack --workspace extensions/pi-vim-quit",
-    "pack:pi-ask-user-question": "npm pack --workspace extensions/pi-ask-user-question",
-    "pack:pi-copy-code-block": "npm pack --workspace extensions/pi-copy-code-block",
-    "pack:pi-interactive-code-review": "npm pack --workspace extensions/pi-interactive-code-review"
+    "pack:pi-vim-quit": "npm run build && npm pack --workspace extensions/pi-vim-quit",
+    "pack:pi-ask-user-question": "npm run build && npm pack --workspace extensions/pi-ask-user-question",
+    "pack:pi-copy-code-block": "npm run build && npm pack --workspace extensions/pi-copy-code-block",
+    "pack:pi-interactive-code-review": "npm run build && npm pack --workspace extensions/pi-interactive-code-review",
+    "clean": "rm -rf extensions/*/dist extensions/*/*.tsbuildinfo",
+    "build": "npm run clean && tsc -b extensions/*/tsconfig.build.json"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
