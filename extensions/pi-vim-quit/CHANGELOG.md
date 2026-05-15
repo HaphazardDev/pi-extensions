@@ -1,5 +1,11 @@
 # @haphazarddev/pi-vim-quit
 
+## 0.2.1
+
+### Patch Changes
+
+- db4a229: Ship compiled JavaScript extension entrypoints instead of TypeScript source to reduce pi startup overhead.
+
 ## 0.2.0
 
 ### Minor Changes
