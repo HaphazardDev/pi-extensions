@@ -1,5 +1,11 @@
 # @haphazarddev/pi-ask-user-question
 
+## 0.2.2
+
+### Patch Changes
+
+- 4834915: Use npm Trusted Publishing in the release workflow.
+
 ## 0.2.1
 
 ### Patch Changes
