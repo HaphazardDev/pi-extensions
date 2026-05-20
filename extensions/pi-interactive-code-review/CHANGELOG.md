@@ -1,5 +1,11 @@
 # @haphazarddev/pi-interactive-code-review
 
+## 0.3.2
+
+### Patch Changes
+
+- 4834915: Use npm Trusted Publishing in the release workflow.
+
 ## 0.3.1
 
 ### Patch Changes

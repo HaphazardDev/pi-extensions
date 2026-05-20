@@ -1,5 +1,11 @@
 # @haphazarddev/pi-copy-code-block
 
+## 0.2.3
+
+### Patch Changes
+
+- 4834915: Use npm Trusted Publishing in the release workflow.
+
 ## 0.2.2
 
 ### Patch Changes
