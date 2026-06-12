@@ -1,5 +1,11 @@
 # @haphazarddev/pi-ask-user-question
 
+## 0.3.0
+
+### Minor Changes
+
+- 7383aa5: Add multi-select option prompts for choosing multiple predefined answers.
+
 ## 0.2.2
 
 ### Patch Changes
