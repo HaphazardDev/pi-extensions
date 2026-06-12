@@ -4,8 +4,7 @@ import { Type } from "@sinclair/typebox";
 
 interface AskUserQuestionDetails {
   question: string;
-  answer: string | null;
-  answers?: string[];
+  answer: string | string[] | null;
   cancelled: boolean;
   mode: "confirm" | "select" | "multi-select" | "input" | "editor";
   options?: string[];
@@ -28,7 +27,8 @@ const AskUserQuestionParams = Type.Object({
   ),
   multiSelect: Type.Optional(
     Type.Boolean({
-      description: "When options are provided, allow selecting multiple predefined options. Defaults to false.",
+      description:
+        "Switch option prompts from single-select to multi-select. When true, the returned answer is a string array. Defaults to false.",
     }),
   ),
   allowCustomAnswer: Type.Optional(
@@ -283,7 +283,6 @@ export default function askUserQuestion(pi: ExtensionAPI) {
               details: {
                 question: params.question,
                 answer: null,
-                answers: [],
                 cancelled: true,
                 mode: "multi-select",
                 options,
@@ -291,13 +290,12 @@ export default function askUserQuestion(pi: ExtensionAPI) {
             };
           }
 
-          const answer = choices.join(", ");
+          const answerText = choices.join(", ");
           return {
-            content: [{ type: "text", text: answer ? `User selected: ${answer}` : "User selected no options." }],
+            content: [{ type: "text", text: answerText ? `User selected: ${answerText}` : "User selected no options." }],
             details: {
               question: params.question,
-              answer,
-              answers: choices,
+              answer: choices,
               cancelled: false,
               mode: "multi-select",
               options,

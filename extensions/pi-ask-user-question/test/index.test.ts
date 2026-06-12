@@ -103,12 +103,12 @@ describe("pi-ask-user-question", () => {
 
     expect(result.content[0].text).toBe("User selected: A, C");
     expect(result.details).toMatchObject({
-      answer: "A, C",
-      answers: ["A", "C"],
+      answer: ["A", "C"],
       cancelled: false,
       mode: "multi-select",
       options: ["A", "B", "C"],
     });
+    expect(result.details.answers).toBeUndefined();
   });
 
   it("handles cancelled multi-select option answers", async () => {
@@ -124,7 +124,8 @@ describe("pi-ask-user-question", () => {
     );
 
     expect(result.content[0].text).toBe("User cancelled the question.");
-    expect(result.details).toMatchObject({ answer: null, answers: [], cancelled: true, mode: "multi-select" });
+    expect(result.details).toMatchObject({ answer: null, cancelled: true, mode: "multi-select" });
+    expect(result.details.answers).toBeUndefined();
   });
 
   it("toggles multiple options in the multi-select UI before submitting", async () => {
@@ -156,7 +157,8 @@ describe("pi-ask-user-question", () => {
       createMockContext({ ui }),
     );
 
-    expect(result.details).toMatchObject({ answer: "A, C", answers: ["A", "C"], mode: "multi-select" });
+    expect(result.details).toMatchObject({ answer: ["A", "C"], mode: "multi-select" });
+    expect(result.details.answers).toBeUndefined();
   });
 
   it("handles cancelled option selection", async () => {
