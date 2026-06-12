@@ -26,6 +26,7 @@ This package registers:
 - single-line input
 - multi-line editor input
 - option selection with keyboard shortcuts
+- multi-select option selection for choosing more than one predefined answer
 - optional custom answers alongside predefined choices
 
 ## Typical use cases
