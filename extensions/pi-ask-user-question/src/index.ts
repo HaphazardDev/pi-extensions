@@ -4,9 +4,9 @@ import { Type } from "@sinclair/typebox";
 
 interface AskUserQuestionDetails {
   question: string;
-  answer: string | null;
+  answer: string | string[] | null;
   cancelled: boolean;
-  mode: "confirm" | "select" | "input" | "editor";
+  mode: "confirm" | "select" | "multi-select" | "input" | "editor";
   options?: string[];
 }
 
@@ -23,6 +23,12 @@ const AskUserQuestionParams = Type.Object({
   options: Type.Optional(
     Type.Array(Type.String({ description: "A selectable option" }), {
       description: "Optional list of choices for the user",
+    }),
+  ),
+  multiSelect: Type.Optional(
+    Type.Boolean({
+      description:
+        "Switch option prompts from single-select to multi-select. When true, the returned answer is a string array. Defaults to false.",
     }),
   ),
   allowCustomAnswer: Type.Optional(
@@ -121,6 +127,111 @@ async function selectOptionWithShortcuts(
   });
 }
 
+async function selectMultipleOptionsWithShortcuts(
+  ctx: {
+    ui: {
+      custom: <T>(
+        component: (tui: any, theme: any, keybindings: any, done: (value: T) => void) => any,
+      ) => Promise<T>;
+    };
+  },
+  question: string,
+  options: string[],
+): Promise<string[] | null> {
+  return ctx.ui.custom<string[] | null>((tui, theme, _kb, done) => {
+    let optionIndex = 0;
+    const selectedIndexes = new Set<number>();
+    let cachedLines: string[] | undefined;
+
+    function refresh() {
+      cachedLines = undefined;
+      tui.requestRender();
+    }
+
+    function toggle(index: number) {
+      if (index < 0 || index >= options.length) return;
+
+      if (selectedIndexes.has(index)) {
+        selectedIndexes.delete(index);
+      } else {
+        selectedIndexes.add(index);
+      }
+      refresh();
+    }
+
+    function submit() {
+      done([...selectedIndexes].sort((a, b) => a - b).map((index) => options[index]));
+    }
+
+    function handleInput(data: string) {
+      if (matchesKey(data, Key.up)) {
+        optionIndex = Math.max(0, optionIndex - 1);
+        refresh();
+        return;
+      }
+
+      if (matchesKey(data, Key.down)) {
+        optionIndex = Math.min(options.length - 1, optionIndex + 1);
+        refresh();
+        return;
+      }
+
+      if (matchesKey(data, Key.space)) {
+        toggle(optionIndex);
+        return;
+      }
+
+      if (matchesKey(data, Key.enter)) {
+        submit();
+        return;
+      }
+
+      if (matchesKey(data, Key.escape)) {
+        done(null);
+        return;
+      }
+
+      if (/^[1-9]$/.test(data)) {
+        toggle(Number(data) - 1);
+      }
+    }
+
+    function render(width: number): string[] {
+      if (cachedLines) return cachedLines;
+
+      const lines: string[] = [];
+      const add = (text: string) => lines.push(truncateToWidth(text, width));
+
+      add(theme.fg("accent", "─".repeat(width)));
+      add(theme.fg("text", ` ${question}`));
+      lines.push("");
+
+      for (let i = 0; i < options.length; i++) {
+        const highlighted = i === optionIndex;
+        const checked = selectedIndexes.has(i) ? "x" : " ";
+        const prefix = highlighted ? theme.fg("accent", "> ") : "  ";
+        const text = `${i + 1}. [${checked}] ${options[i]}`;
+        add(highlighted ? prefix + theme.fg("accent", text) : `  ${theme.fg("text", text)}`);
+      }
+
+      lines.push("");
+      add(theme.fg("dim", " 1-9 toggle • Space toggle • ↑↓ navigate • Enter submit • Esc cancel"));
+      add(theme.fg("accent", "─".repeat(width)));
+
+      cachedLines = lines;
+      return lines;
+    }
+
+    return {
+      render,
+      invalidate: () => {
+        cachedLines = undefined;
+      },
+      handleInput,
+    };
+  });
+}
+
 export default function askUserQuestion(pi: ExtensionAPI) {
   pi.registerTool({
     name: "ask_user_question",
@@ -163,6 +274,35 @@ export default function askUserQuestion(pi: ExtensionAPI) {
 
       const options = (params.options ?? []).filter((option) => option.trim().length > 0);
       if (options.length > 0) {
+        if (params.multiSelect) {
+          const choices = await selectMultipleOptionsWithShortcuts(ctx, params.question, options);
+
+          if (!choices) {
+            return {
+              content: [{ type: "text", text: "User cancelled the question." }],
+              details: {
+                question: params.question,
+                answer: null,
+                cancelled: true,
+                mode: "multi-select",
+                options,
+              } satisfies AskUserQuestionDetails,
+            };
+          }
+
+          const answerText = choices.join(", ");
+          return {
+            content: [{ type: "text", text: answerText ? `User selected: ${answerText}` : "User selected no options." }],
+            details: {
+              question: params.question,
+              answer: choices,
+              cancelled: false,
+              mode: "multi-select",
+              options,
+            } satisfies AskUserQuestionDetails,
+          };
+        }
+
         const allowCustomAnswer = params.allowCustomAnswer !== false;
         const customLabel = "Type your own answer…";
         const displayedOptions = allowCustomAnswer ? [...options, customLabel] : options;

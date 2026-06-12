@@ -78,6 +78,89 @@ describe("pi-ask-user-question", () => {
     expect(result.details).toMatchObject({ answer: "B", cancelled: false, mode: "select", options: ["A", "B"] });
   });
 
+  it("keeps single-choice option selection distinct from multi-select", async () => {
+    const tool = registerTool();
+    const ui = createMockUi({ custom: vi.fn().mockResolvedValue("A") });
+
+    const result = await tool.execute("id", { question: "Pick one", options: ["A", "B"] }, undefined, undefined, createMockContext({ ui }));
+
+    expect(result.content[0].text).toBe("User selected: A");
+    expect(result.details).toMatchObject({ answer: "A", cancelled: false, mode: "select" });
+    expect(result.details.answers).toBeUndefined();
+  });
+
+  it("handles multi-select option answers", async () => {
+    const tool = registerTool();
+    const ui = createMockUi({ custom: vi.fn().mockResolvedValue(["A", "C"]) });
+
+    const result = await tool.execute(
+      "id",
+      { question: "Select all valid answers", options: ["A", "B", "C"], multiSelect: true },
+      undefined,
+      undefined,
+      createMockContext({ ui }),
+    );
+
+    expect(result.content[0].text).toBe("User selected: A, C");
+    expect(result.details).toMatchObject({
+      answer: ["A", "C"],
+      cancelled: false,
+      mode: "multi-select",
+      options: ["A", "B", "C"],
+    });
+    expect(result.details.answers).toBeUndefined();
+  });
+
+  it("handles cancelled multi-select option answers", async () => {
+    const tool = registerTool();
+    const ui = createMockUi({ custom: vi.fn().mockResolvedValue(null) });
+
+    const result = await tool.execute(
+      "id",
+      { question: "Select all valid answers", options: ["A", "B"], multiSelect: true },
+      undefined,
+      undefined,
+      createMockContext({ ui }),
+    );
+
+    expect(result.content[0].text).toBe("User cancelled the question.");
+    expect(result.details).toMatchObject({ answer: null, cancelled: true, mode: "multi-select" });
+    expect(result.details.answers).toBeUndefined();
+  });
+
+  it("toggles multiple options in the multi-select UI before submitting", async () => {
+    const tool = registerTool();
+    const ui = createMockUi({
+      custom: vi.fn().mockImplementation((component) =>
+        new Promise((resolve) => {
+          const widget = component(
+            { requestRender: vi.fn() },
+            { fg: (_color: string, text: string) => text },
+            {},
+            resolve,
+          );
+
+          widget.handleInput(" ");
+          widget.handleInput("\x1b[B");
+          widget.handleInput("\x1b[B");
+          widget.handleInput(" ");
+          widget.handleInput("\r");
+        }),
+      ),
+    });
+
+    const result = await tool.execute(
+      "id",
+      { question: "Select all valid answers", options: ["A", "B", "C"], multiSelect: true },
+      undefined,
+      undefined,
+      createMockContext({ ui }),
+    );
+
+    expect(result.details).toMatchObject({ answer: ["A", "C"], mode: "multi-select" });
+    expect(result.details.answers).toBeUndefined();
+  });
+
   it("handles cancelled option selection", async () => {
     const tool = registerTool();
     const ui = createMockUi({ custom: vi.fn().mockResolvedValue(null) });
