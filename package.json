@@ -32,13 +32,13 @@
     "build": "npm run clean && tsc -b extensions/*/tsconfig.build.json"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.31.0",
-    "@earendil-works/pi-ai": "^0.79.8",
-    "@earendil-works/pi-coding-agent": "^0.79.8",
-    "@earendil-works/pi-tui": "^0.79.8",
-    "@sinclair/typebox": "^0.34.41",
-    "@types/node": "^24.13.2",
+    "@changesets/cli": "^2.31.1",
+    "@earendil-works/pi-ai": "^0.80.10",
+    "@earendil-works/pi-coding-agent": "^0.80.10",
+    "@earendil-works/pi-tui": "^0.80.10",
+    "@sinclair/typebox": "^0.34.52",
+    "@types/node": "^24.13.3",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.10"
   }
 }
