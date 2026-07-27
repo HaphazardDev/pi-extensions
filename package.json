@@ -28,6 +28,7 @@
     "pack:pi-ask-user-question": "npm run build && npm pack --workspace extensions/pi-ask-user-question",
     "pack:pi-copy-code-block": "npm run build && npm pack --workspace extensions/pi-copy-code-block",
     "pack:pi-interactive-code-review": "npm run build && npm pack --workspace extensions/pi-interactive-code-review",
+    "pack:pi-background-bash": "npm run build && npm pack --workspace extensions/pi-background-bash",
     "clean": "rm -rf extensions/*/dist extensions/*/*.tsbuildinfo",
     "build": "npm run clean && tsc -b extensions/*/tsconfig.build.json"
   },

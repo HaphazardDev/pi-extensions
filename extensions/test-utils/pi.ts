@@ -25,6 +25,8 @@ export function createMockPi(): any {
     registerShortcut: vi.fn((shortcut: string, config: any) => {
       shortcuts.set(shortcut, config);
     }),
+    sendMessage: vi.fn(),
+    appendEntry: vi.fn(),
   };
 }
 

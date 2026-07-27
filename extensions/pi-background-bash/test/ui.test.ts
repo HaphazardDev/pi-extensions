@@ -1,0 +1,157 @@
+import { describe, expect, it, vi } from "vitest";
+import { BackgroundJobsBrowser, type BackgroundJobsDataSource } from "../src/ui.js";
+import type { JobInfo, LogPage } from "../src/types.js";
+
+function job(overrides: Partial<JobInfo> = {}): JobInfo {
+  return {
+    id: "bg-one",
+    command: "npm run dev",
+    cwd: "/repo",
+    status: "running",
+    startedAt: "2026-07-27T00:00:00.000Z",
+    endedAt: null,
+    pid: 123,
+    logPath: "/tmp/bg-one.log",
+    exitCode: null,
+    signal: null,
+    elapsedMs: 1_500,
+    timeoutMs: null,
+    ...overrides,
+  };
+}
+
+function source(jobs = [job(), job({ id: "bg-two", command: "npm test", status: "exited", exitCode: 0 })]) {
+  let listener: (() => void) | undefined;
+  const pages = new Map<string, LogPage>([
+    ["bg-one", { offset: 0, limit: 200, lines: [{ stream: "stdout", text: "server ready" }], totalLines: 1, hasMore: false, nextOffset: null }],
+    ["bg-two", { offset: 0, limit: 200, lines: [{ stream: "stderr", text: "test warning" }, { stream: "stdout", text: "tests passed" }], totalLines: 2, hasMore: false, nextOffset: null }],
+  ]);
+
+  const dataSource: BackgroundJobsDataSource & { emit: () => void } = {
+    list: vi.fn(() => jobs),
+    get: vi.fn((id: string) => jobs.find((candidate) => candidate.id === id)),
+    readLogs: vi.fn(async (id: string, options?: { offset?: number; limit?: number }) => {
+      const page = pages.get(id)!;
+      return { ...page, offset: options?.offset ?? page.offset, limit: options?.limit ?? page.limit };
+    }),
+    stop: vi.fn(async (_id: string) => true),
+    subscribe: vi.fn((callback: () => void) => {
+      listener = callback;
+      return () => {
+        listener = undefined;
+      };
+    }),
+    emit: () => listener?.(),
+  };
+  return dataSource;
+}
+
+const theme = {
+  fg: (_color: string, text: string) => text,
+};
+
+describe("BackgroundJobsBrowser", () => {
+  it("renders a navigable list with running and completed jobs", () => {
+    const browser = new BackgroundJobsBrowser({ requestRender: vi.fn() } as any, theme as any, source(), vi.fn());
+    const output = browser.render(100).join("\n");
+
+    expect(output).toContain("Background Bash Jobs");
+    expect(output).toContain("> bg-one");
+    expect(output).toContain("running");
+    expect(output).toContain("bg-two");
+    expect(output).toContain("exited 0");
+  });
+
+  it("uses raw arrow and enter input to open the selected job output", async () => {
+    const browser = new BackgroundJobsBrowser({ requestRender: vi.fn() } as any, theme as any, source(), vi.fn());
+
+    browser.handleInput("\x1b[B");
+    browser.handleInput("\r");
+    await vi.waitFor(() => expect(browser.render(100).join("\n")).toContain("tests passed"));
+    const output = browser.render(100).join("\n");
+
+    expect(output).toContain("bg-two • npm test");
+    expect(output).toContain("stderr │ test warning");
+    expect(output).toContain("stdout │ tests passed");
+  });
+
+  it("loads the tail of logs larger than the UI page limit", async () => {
+    const running = job();
+    const lines = Array.from({ length: 2_005 }, (_, index) => ({ stream: "stdout" as const, text: `line ${index + 1}` }));
+    const dataSource: BackgroundJobsDataSource = {
+      list: () => [running],
+      get: () => running,
+      readLogs: vi.fn(async (_id: string, options = {}) => {
+        const offset = options.offset ?? 0;
+        const limit = options.limit ?? 100;
+        const pageLines = lines.slice(offset, offset + limit);
+        return {
+          offset,
+          limit,
+          lines: pageLines,
+          totalLines: lines.length,
+          hasMore: offset + pageLines.length < lines.length,
+          nextOffset: offset + pageLines.length < lines.length ? offset + pageLines.length : null,
+        };
+      }),
+      stop: vi.fn(async () => true),
+      subscribe: () => () => undefined,
+    };
+    const browser = new BackgroundJobsBrowser({ requestRender: vi.fn() } as any, theme as any, dataSource, vi.fn());
+
+    browser.handleInput("\r");
+    await vi.waitFor(() => expect(browser.render(100).join("\n")).toContain("line 2005"));
+    expect(dataSource.readLogs).toHaveBeenCalledWith("bg-one", { offset: 1_987, limit: 18 });
+    browser.dispose();
+  });
+
+  it("returns from detail before closing the browser", () => {
+    const done = vi.fn();
+    const browser = new BackgroundJobsBrowser({ requestRender: vi.fn() } as any, theme as any, source(), done);
+
+    browser.handleInput("\r");
+    browser.handleInput("\x1b");
+    expect(done).not.toHaveBeenCalled();
+    expect(browser.render(100).join("\n")).toContain("Background Bash Jobs");
+
+    browser.handleInput("q");
+    expect(done).toHaveBeenCalledWith("close");
+  });
+
+  it("stops the selected running job", async () => {
+    const dataSource = source();
+    const browser = new BackgroundJobsBrowser({ requestRender: vi.fn() } as any, theme as any, dataSource, vi.fn());
+
+    browser.handleInput("s");
+    await Promise.resolve();
+
+    expect(dataSource.stop).toHaveBeenCalledWith("bg-one");
+  });
+
+  it("surfaces stop failures without an unhandled rejection", async () => {
+    const dataSource = source();
+    const stopMock = dataSource.stop as unknown as { mockRejectedValue(error: unknown): void };
+    stopMock.mockRejectedValue(new Error("permission denied"));
+    const browser = new BackgroundJobsBrowser({ requestRender: vi.fn() } as any, theme as any, dataSource, vi.fn());
+
+    browser.handleInput("s");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(browser.render(100).join("\n")).toContain("Failed to stop");
+    browser.dispose();
+  });
+
+  it("rerenders on job changes and unsubscribes when disposed", () => {
+    const requestRender = vi.fn();
+    const dataSource = source();
+    const browser = new BackgroundJobsBrowser({ requestRender } as any, theme as any, dataSource, vi.fn());
+
+    dataSource.emit();
+    expect(requestRender).toHaveBeenCalled();
+
+    browser.dispose();
+    requestRender.mockClear();
+    dataSource.emit();
+    expect(requestRender).not.toHaveBeenCalled();
+  });
+});
