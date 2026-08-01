@@ -70,10 +70,11 @@ describe("pi-background-bash extension", () => {
     managers[0].options.onChange(running);
     expect(ui.setWidget).toHaveBeenLastCalledWith(
       "background-bash",
-      ["npm test • running 0s • /ps"],
+      [" npm test • running 0s • /ps"],
       { placement: "aboveEditor" },
     );
     expect(ui.theme.fg).toHaveBeenCalledWith("text", "npm test");
+    expect(ui.theme.fg).toHaveBeenCalledWith("dim", "");
     expect(ui.theme.fg).toHaveBeenCalledWith("accent", "running");
     expect(ui.theme.fg).toHaveBeenCalledWith("dim", "0s");
     expect(ui.setStatus).not.toHaveBeenCalled();
@@ -95,7 +96,7 @@ describe("pi-background-bash extension", () => {
 
       expect(ui.setWidget).toHaveBeenLastCalledWith(
         "background-bash",
-        ["npm test • running 8s • /ps"],
+        [" npm test • running 8s • /ps"],
         { placement: "aboveEditor" },
       );
       await pi.handlers.get("session_shutdown")[0]({ type: "session_shutdown" }, ctx);

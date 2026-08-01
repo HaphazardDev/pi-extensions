@@ -7,6 +7,7 @@ import { BackgroundJobsBrowser, type BackgroundJobsDataSource } from "./ui.js";
 
 const WIDGET_KEY = "background-bash";
 const RESULT_MESSAGE_TYPE = "background-bash-result";
+const BACKGROUND_JOB_ICON = "";
 
 export interface BackgroundBashExtensionDependencies {
   createManager?(options: JobManagerOptions): JobManager;
@@ -37,7 +38,7 @@ export function createBackgroundBashExtension(dependencies: BackgroundBashExtens
       }
       const separator = ctx.ui.theme.fg("dim", " • ");
       const fields = [
-        ctx.ui.theme.fg("text", summary.command),
+        `${ctx.ui.theme.fg("dim", BACKGROUND_JOB_ICON)} ${ctx.ui.theme.fg("text", summary.command)}`,
         `${ctx.ui.theme.fg(summary.statusColor, summary.status)} ${ctx.ui.theme.fg("dim", summary.duration)}`,
       ];
       if (summary.additionalRunning > 0) {

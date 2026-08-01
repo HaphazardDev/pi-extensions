@@ -20,7 +20,7 @@
 - POSIX uses detached process groups and negative-PID signals. Windows uses task termination fallback and is kept behind injected platform/process adapters for testing.
 - Completion records include exit code or signal, elapsed time, timestamps, command, cwd, and timeout/stop outcome.
 - Completion messages wake the agent as a follow-up only when requested by the start call; UI notifications and the above-editor widget always update.
-- The above-editor widget shows the newest running command with a theme-colored status and elapsed time, e.g. `npm run build • running 8s • +1 more • /ps`; when idle, it shows the latest completed command and outcome.
+- The above-editor widget uses Nerd Font's dim `run all` glyph and shows the newest running command with a theme-colored status and elapsed time, e.g. ` npm run build • running 8s • +1 more • /ps`; when idle, it shows the latest completed command and outcome.
 - `/ps` or `Ctrl+Alt+K` opens a focused full-screen, keyboard-navigable process view with bottom-pinned shortcuts. Enter opens output; up/down or j/k navigate; s stops a running job; q/Escape returns or closes. The output view also exposes `r` to reload logs.
 
 ## Acceptance criteria

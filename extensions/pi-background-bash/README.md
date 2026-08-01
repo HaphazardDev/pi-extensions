@@ -54,8 +54,10 @@ A start call accepts a command, optional working directory, optional timeout, an
 An above-prompt widget shows the newest running command, its theme-colored status, and elapsed time:
 
 ```text
-npm run build • running 8s • +1 more • /ps
+ npm run build • running 8s • +1 more • /ps
 ```
+
+The leading glyph is Nerd Font's `cod-run_all` (`U+EB9E`) and is rendered in a neutral, dim color.
 
 When no jobs are running, it shows the most recently completed command with a success, failure, timeout, or stopped color.
 
