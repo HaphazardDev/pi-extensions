@@ -59,7 +59,7 @@ describe("pi-background-bash extension", () => {
     expect(pi.handlers.get("session_shutdown")).toHaveLength(1);
   });
 
-  it("shows running and total counts above the editor when manager state changes", async () => {
+  it("shows the active command and theme-colored status above the editor", async () => {
     const { pi, managers, jobs } = setup();
     const ui = createMockUi();
     const ctx = createMockContext({ ui, cwd: "/repo", mode: "tui" });
@@ -70,10 +70,38 @@ describe("pi-background-bash extension", () => {
     managers[0].options.onChange(running);
     expect(ui.setWidget).toHaveBeenLastCalledWith(
       "background-bash",
-      ["⚙ 1 running • 1 job • /ps"],
+      ["npm test • running 0s • /ps"],
       { placement: "aboveEditor" },
     );
+    expect(ui.theme.fg).toHaveBeenCalledWith("text", "npm test");
+    expect(ui.theme.fg).toHaveBeenCalledWith("accent", "running");
+    expect(ui.theme.fg).toHaveBeenCalledWith("dim", "0s");
     expect(ui.setStatus).not.toHaveBeenCalled();
+  });
+
+  it("refreshes the active command duration while it is running", async () => {
+    vi.useFakeTimers();
+    try {
+      const { pi, managers, jobs } = setup();
+      const ui = createMockUi();
+      const ctx = createMockContext({ ui, cwd: "/repo", mode: "tui" });
+      await pi.handlers.get("session_start")[0]({ type: "session_start", reason: "startup" }, ctx);
+      const running = job();
+      jobs.push(running);
+      managers[0].options.onChange(running);
+
+      running.elapsedMs = 8_000;
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(ui.setWidget).toHaveBeenLastCalledWith(
+        "background-bash",
+        ["npm test • running 8s • /ps"],
+        { placement: "aboveEditor" },
+      );
+      await pi.handlers.get("session_shutdown")[0]({ type: "session_shutdown" }, ctx);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("opens the navigable TUI browser from /ps", async () => {

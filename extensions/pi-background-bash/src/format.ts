@@ -29,10 +29,30 @@ export function formatJobStatus(job: JobInfo): string {
   return label;
 }
 
-export function formatWidgetLines(jobs: JobInfo[]): string[] | undefined {
+export interface WidgetSummary {
+  command: string;
+  status: string;
+  statusColor: "accent" | "success" | "error" | "warning" | "muted";
+  duration: string;
+  additionalRunning: number;
+}
+
+function widgetStatus(job: JobInfo): Pick<WidgetSummary, "status" | "statusColor"> {
+  if (job.status === "running") return { status: "running", statusColor: "accent" };
+  if (job.status === "exited" && job.exitCode === 0) return { status: "passed", statusColor: "success" };
+  if (job.status === "timed_out") return { status: "timed out", statusColor: "warning" };
+  if (job.status === "stopped") return { status: "stopped", statusColor: "muted" };
+  return { status: formatJobStatus(job), statusColor: "error" };
+}
+
+export function formatWidgetSummary(jobs: JobInfo[]): WidgetSummary | undefined {
   if (jobs.length === 0) return undefined;
-  const running = jobs.filter((job) => job.status === "running").length;
-  const runningLabel = `${running} running`;
-  const jobsLabel = `${jobs.length} ${jobs.length === 1 ? "job" : "jobs"}`;
-  return [`⚙ ${runningLabel} • ${jobsLabel} • /ps`];
+  const running = jobs.filter((job) => job.status === "running");
+  const selected = [...running].reverse().at(0) ?? jobs.at(-1)!;
+  return {
+    command: truncateCommand(selected.command, 48),
+    ...widgetStatus(selected),
+    duration: formatDuration(selected.elapsedMs),
+    additionalRunning: Math.max(0, running.length - 1),
+  };
 }

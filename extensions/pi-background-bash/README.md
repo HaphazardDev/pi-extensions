@@ -51,11 +51,13 @@ A start call accepts a command, optional working directory, optional timeout, an
 
 ## TUI
 
-An above-prompt widget reports the number of running and total jobs:
+An above-prompt widget shows the newest running command, its theme-colored status, and elapsed time:
 
 ```text
-⚙ 2 running • 4 jobs • /ps
+npm run build • running 8s • +1 more • /ps
 ```
+
+When no jobs are running, it shows the most recently completed command with a success, failure, timeout, or stopped color.
 
 Open the browser with:
 

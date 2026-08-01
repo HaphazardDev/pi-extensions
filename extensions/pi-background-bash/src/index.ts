@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { formatJobStatus, formatWidgetLines } from "./format.js";
+import { formatJobStatus, formatWidgetSummary } from "./format.js";
 import { JobManager, type JobManagerOptions } from "./job-manager.js";
 import { registerBackgroundBashTools } from "./tools.js";
 import type { JobInfo } from "./types.js";
@@ -20,6 +20,7 @@ export function createBackgroundBashExtension(dependencies: BackgroundBashExtens
     let latestContext: ExtensionContext | undefined;
     let sessionStarted = false;
     let shuttingDown = false;
+    let widgetRefreshTimer: NodeJS.Timeout | undefined;
     let manager: JobManager;
 
     const emit = () => {
@@ -29,14 +30,23 @@ export function createBackgroundBashExtension(dependencies: BackgroundBashExtens
     const updateWidget = () => {
       const ctx = latestContext;
       if (!ctx?.hasUI) return;
-      const lines = formatWidgetLines(manager.list());
-      if (!lines) {
+      const summary = formatWidgetSummary(manager.list());
+      if (!summary) {
         ctx.ui.setWidget(WIDGET_KEY, undefined);
         return;
       }
+      const separator = ctx.ui.theme.fg("dim", " • ");
+      const fields = [
+        ctx.ui.theme.fg("text", summary.command),
+        `${ctx.ui.theme.fg(summary.statusColor, summary.status)} ${ctx.ui.theme.fg("dim", summary.duration)}`,
+      ];
+      if (summary.additionalRunning > 0) {
+        fields.push(ctx.ui.theme.fg("accent", `+${summary.additionalRunning} more`));
+      }
+      fields.push(ctx.ui.theme.fg("accent", "/ps"));
       ctx.ui.setWidget(
         WIDGET_KEY,
-        lines.map((line) => ctx.ui.theme.fg("accent", line)),
+        [fields.join(separator)],
         { placement: "aboveEditor" },
       );
     };
@@ -80,6 +90,20 @@ export function createBackgroundBashExtension(dependencies: BackgroundBashExtens
       onComplete: handleCompletion,
     });
     manager = newManager();
+
+    const startWidgetRefresh = () => {
+      if (widgetRefreshTimer) return;
+      widgetRefreshTimer = setInterval(() => {
+        if (manager.list().some((job) => job.status === "running")) updateWidget();
+      }, 1_000);
+      widgetRefreshTimer.unref();
+    };
+
+    const stopWidgetRefresh = () => {
+      if (!widgetRefreshTimer) return;
+      clearInterval(widgetRefreshTimer);
+      widgetRefreshTimer = undefined;
+    };
 
     const dataSource: BackgroundJobsDataSource = {
       list: () => manager.list(),
@@ -136,12 +160,14 @@ export function createBackgroundBashExtension(dependencies: BackgroundBashExtens
       }
       shuttingDown = false;
       sessionStarted = true;
+      startWidgetRefresh();
       updateWidget();
     });
 
     pi.on("session_shutdown", async (_event, ctx) => {
       latestContext = ctx;
       shuttingDown = true;
+      stopWidgetRefresh();
       await manager.cleanup();
       notifyAgentByJobId.clear();
       listeners.clear();
