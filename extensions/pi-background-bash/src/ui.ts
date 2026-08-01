@@ -228,7 +228,7 @@ export class BackgroundJobsBrowser {
       }
     }
 
-    return this.finishView(lines, " ↑↓/jk navigate • Enter output • s stop • r refresh • q/Esc close", width);
+    return this.finishView(lines, " ↑↓/jk navigate • Enter output • s stop • q/Esc close", width);
   }
 
   private renderDetail(width: number): string[] {

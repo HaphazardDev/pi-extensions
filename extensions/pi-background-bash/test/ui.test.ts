@@ -64,6 +64,7 @@ describe("BackgroundJobsBrowser", () => {
     expect(lines.every((line) => line.length === 100)).toBe(true);
     expect(lines[0]).toContain("BACKGROUND PROCESSES");
     expect(lines.at(-2)).toContain("↑↓/jk navigate");
+    expect(lines.at(-2)).not.toContain("r refresh");
     expect(output).toContain("Jobs (2)");
     expect(output).toContain("> bg-one");
     expect(output).toContain("running");

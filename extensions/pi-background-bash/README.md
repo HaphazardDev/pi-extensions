@@ -73,7 +73,7 @@ The browser opens as a focused full-screen process view with a prominent title. 
 | `↑` / `↓`, `j` / `k` | Navigate jobs or output |
 | `Enter` | Open the selected job |
 | `Esc`, `q` | Return to the list or close |
-| `r` | Refresh status and output |
+| `r` | Reload the displayed output |
 | `s` | Stop the selected running job |
 | `g` / `G` | Jump to the beginning/end of output |
 
