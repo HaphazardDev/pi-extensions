@@ -52,12 +52,14 @@ describe("pi-background-bash extension", () => {
   it("registers lifecycle tools, the browser command, and session handlers", () => {
     const { pi } = setup();
     expect(pi.tools).toHaveLength(5);
-    expect(pi.commands.get("background-bash")).toBeDefined();
+    expect(pi.commands.get("ps")).toBeDefined();
+    expect(pi.commands.get("background-bash")).toBeUndefined();
+    expect(pi.shortcuts.get("ctrl+alt+k")).toBeDefined();
     expect(pi.handlers.get("session_start")).toHaveLength(1);
     expect(pi.handlers.get("session_shutdown")).toHaveLength(1);
   });
 
-  it("shows running and total counts when manager state changes", async () => {
+  it("shows running and total counts above the editor when manager state changes", async () => {
     const { pi, managers, jobs } = setup();
     const ui = createMockUi();
     const ctx = createMockContext({ ui, cwd: "/repo", mode: "tui" });
@@ -66,21 +68,48 @@ describe("pi-background-bash extension", () => {
     const running = job();
     jobs.push(running);
     managers[0].options.onChange(running);
-    expect(ui.setStatus).toHaveBeenLastCalledWith("background-bash", "⚙ 1 running • 1 job • /background-bash");
+    expect(ui.setWidget).toHaveBeenLastCalledWith(
+      "background-bash",
+      ["⚙ 1 running • 1 job • /ps"],
+      { placement: "aboveEditor" },
+    );
+    expect(ui.setStatus).not.toHaveBeenCalled();
   });
 
-  it("opens the navigable TUI browser from /background-bash", async () => {
+  it("opens the navigable TUI browser from /ps", async () => {
     const { pi, jobs } = setup();
     jobs.push(job());
     const ui = createMockUi({ custom: vi.fn().mockResolvedValue("close") });
     const ctx = createMockContext({ ui, cwd: "/repo", mode: "tui" });
     await pi.handlers.get("session_start")[0]({ type: "session_start", reason: "startup" }, ctx);
 
-    await pi.commands.get("background-bash").handler("", ctx);
+    await pi.commands.get("ps").handler("", ctx);
 
-    expect(ui.custom).toHaveBeenCalledOnce();
+    expect(ui.custom).toHaveBeenCalledWith(expect.any(Function), {
+      overlay: true,
+      overlayOptions: { col: 0, margin: 0, maxHeight: "100%", row: 0, width: "100%" },
+    });
     const factory = ui.custom.mock.calls[0][0];
-    const component = factory({ requestRender: vi.fn() }, ui.theme, {}, vi.fn());
+    const component = factory({ requestRender: vi.fn(), terminal: { rows: 24 } }, ui.theme, {}, vi.fn());
+    expect(component.render(100).join("\n")).toContain("bg-one");
+    component.dispose();
+  });
+
+  it("opens the navigable TUI browser from Ctrl+Alt+K", async () => {
+    const { pi, jobs } = setup();
+    jobs.push(job());
+    const ui = createMockUi({ custom: vi.fn().mockResolvedValue("close") });
+    const ctx = createMockContext({ ui, cwd: "/repo", mode: "tui" });
+    await pi.handlers.get("session_start")[0]({ type: "session_start", reason: "startup" }, ctx);
+
+    await pi.shortcuts.get("ctrl+alt+k").handler(ctx);
+
+    expect(ui.custom).toHaveBeenCalledWith(expect.any(Function), {
+      overlay: true,
+      overlayOptions: { col: 0, margin: 0, maxHeight: "100%", row: 0, width: "100%" },
+    });
+    const factory = ui.custom.mock.calls[0][0];
+    const component = factory({ requestRender: vi.fn(), terminal: { rows: 24 } }, ui.theme, {}, vi.fn());
     expect(component.render(100).join("\n")).toContain("bg-one");
     component.dispose();
   });
@@ -128,7 +157,7 @@ describe("pi-background-bash extension", () => {
     expect(pi.sendMessage).not.toHaveBeenCalled();
   });
 
-  it("cleans running jobs and clears status at shutdown", async () => {
+  it("cleans running jobs and clears the above-editor widget at shutdown", async () => {
     const { pi, managers } = setup();
     const ui = createMockUi();
     const ctx = createMockContext({ ui, cwd: "/repo", mode: "tui" });
@@ -137,6 +166,6 @@ describe("pi-background-bash extension", () => {
     await pi.handlers.get("session_shutdown")[0]({ type: "session_shutdown" }, ctx);
 
     expect(managers[0].cleanup).toHaveBeenCalledOnce();
-    expect(ui.setStatus).toHaveBeenLastCalledWith("background-bash", undefined);
+    expect(ui.setWidget).toHaveBeenLastCalledWith("background-bash", undefined);
   });
 });

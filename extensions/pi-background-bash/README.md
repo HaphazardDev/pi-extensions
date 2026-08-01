@@ -51,22 +51,23 @@ A start call accepts a command, optional working directory, optional timeout, an
 
 ## TUI
 
-The footer reports the number of running and total jobs:
+An above-prompt widget reports the number of running and total jobs:
 
 ```text
-⚙ 2 running • 4 jobs • /background-bash
+⚙ 2 running • 4 jobs • /ps
 ```
 
 Open the browser with:
 
 ```text
-/background-bash
+/ps
 ```
 
-The browser provides a job list and an output detail view.
+The browser opens as a focused full-screen process view with a prominent title. Its shortcut bar stays pinned to the bottom while the job list or output fills the available terminal height.
 
 | Key | Action |
 | --- | --- |
+| `Ctrl+Alt+K` | Open the background process browser from the prompt |
 | `↑` / `↓`, `j` / `k` | Navigate jobs or output |
 | `Enter` | Open the selected job |
 | `Esc`, `q` | Return to the list or close |

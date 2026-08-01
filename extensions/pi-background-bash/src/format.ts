@@ -29,10 +29,10 @@ export function formatJobStatus(job: JobInfo): string {
   return label;
 }
 
-export function formatStatusLine(jobs: JobInfo[]): string | undefined {
+export function formatWidgetLines(jobs: JobInfo[]): string[] | undefined {
   if (jobs.length === 0) return undefined;
   const running = jobs.filter((job) => job.status === "running").length;
   const runningLabel = `${running} running`;
   const jobsLabel = `${jobs.length} ${jobs.length === 1 ? "job" : "jobs"}`;
-  return `⚙ ${runningLabel} • ${jobsLabel} • /background-bash`;
+  return [`⚙ ${runningLabel} • ${jobsLabel} • /ps`];
 }

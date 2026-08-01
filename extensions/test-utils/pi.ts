@@ -38,6 +38,7 @@ export function createMockUi(overrides: Record<string, any> = {}): any {
     editor: vi.fn(),
     custom: vi.fn(),
     setStatus: vi.fn(),
+    setWidget: vi.fn(),
     theme: {
       fg: vi.fn((_color: string, text: string) => text),
     },

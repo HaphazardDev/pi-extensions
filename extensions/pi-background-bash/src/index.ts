@@ -1,11 +1,11 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { formatJobStatus, formatStatusLine } from "./format.js";
+import { formatJobStatus, formatWidgetLines } from "./format.js";
 import { JobManager, type JobManagerOptions } from "./job-manager.js";
 import { registerBackgroundBashTools } from "./tools.js";
 import type { JobInfo } from "./types.js";
 import { BackgroundJobsBrowser, type BackgroundJobsDataSource } from "./ui.js";
 
-const STATUS_KEY = "background-bash";
+const WIDGET_KEY = "background-bash";
 const RESULT_MESSAGE_TYPE = "background-bash-result";
 
 export interface BackgroundBashExtensionDependencies {
@@ -26,15 +26,23 @@ export function createBackgroundBashExtension(dependencies: BackgroundBashExtens
       for (const listener of listeners) listener();
     };
 
-    const updateStatus = () => {
+    const updateWidget = () => {
       const ctx = latestContext;
       if (!ctx?.hasUI) return;
-      const text = formatStatusLine(manager.list());
-      ctx.ui.setStatus(STATUS_KEY, text ? ctx.ui.theme.fg("accent", text) : undefined);
+      const lines = formatWidgetLines(manager.list());
+      if (!lines) {
+        ctx.ui.setWidget(WIDGET_KEY, undefined);
+        return;
+      }
+      ctx.ui.setWidget(
+        WIDGET_KEY,
+        lines.map((line) => ctx.ui.theme.fg("accent", line)),
+        { placement: "aboveEditor" },
+      );
     };
 
     const handleCompletion = (job: JobInfo) => {
-      updateStatus();
+      updateWidget();
       emit();
       const notifyAgent = notifyAgentByJobId.get(job.id) ?? false;
       notifyAgentByJobId.delete(job.id);
@@ -44,7 +52,7 @@ export function createBackgroundBashExtension(dependencies: BackgroundBashExtens
       const successful = job.status === "exited" && job.exitCode === 0;
       if (ctx?.hasUI) {
         ctx.ui.notify(
-          `${job.id} completed: ${formatJobStatus(job)}. Open /background-bash to inspect output.`,
+          `${job.id} completed: ${formatJobStatus(job)}. Open /ps to inspect output.`,
           successful ? "info" : "warning",
         );
       }
@@ -66,7 +74,7 @@ export function createBackgroundBashExtension(dependencies: BackgroundBashExtens
 
     const newManager = () => createManager({
       onChange: () => {
-        updateStatus();
+        updateWidget();
         emit();
       },
       onComplete: handleCompletion,
@@ -84,26 +92,38 @@ export function createBackgroundBashExtension(dependencies: BackgroundBashExtens
       },
     };
 
+    const openBrowser = async (ctx: ExtensionContext): Promise<void> => {
+      latestContext = ctx;
+      if (ctx.mode !== "tui") {
+        ctx.ui.notify("The background process browser requires Pi's interactive TUI.", "error");
+        return;
+      }
+      await ctx.ui.custom<"close">(
+        (tui, theme, _keybindings, done) => new BackgroundJobsBrowser(tui, theme, dataSource, done),
+        {
+          overlay: true,
+          overlayOptions: { col: 0, margin: 0, maxHeight: "100%", row: 0, width: "100%" },
+        },
+      );
+    };
+
     registerBackgroundBashTools(pi, {
       getManager: () => manager,
       onJobStarted: (job, notifyAgent) => {
         notifyAgentByJobId.set(job.id, notifyAgent);
-        updateStatus();
+        updateWidget();
         emit();
       },
     });
 
-    pi.registerCommand("background-bash", {
+    pi.registerCommand("ps", {
       description: "Browse background Bash jobs and their output",
-      handler: async (_args, ctx) => {
-        latestContext = ctx;
-        if (ctx.mode !== "tui") {
-          ctx.ui.notify("/background-bash requires Pi's interactive TUI.", "error");
-          return;
-        }
-        await ctx.ui.custom<"close">((tui, theme, _keybindings, done) =>
-          new BackgroundJobsBrowser(tui, theme, dataSource, done));
-      },
+      handler: async (_args, ctx) => openBrowser(ctx),
+    });
+
+    pi.registerShortcut("ctrl+alt+k", {
+      description: "Open background Bash jobs",
+      handler: openBrowser,
     });
 
     pi.on("session_start", async (_event, ctx) => {
@@ -116,7 +136,7 @@ export function createBackgroundBashExtension(dependencies: BackgroundBashExtens
       }
       shuttingDown = false;
       sessionStarted = true;
-      updateStatus();
+      updateWidget();
     });
 
     pi.on("session_shutdown", async (_event, ctx) => {
@@ -125,7 +145,7 @@ export function createBackgroundBashExtension(dependencies: BackgroundBashExtens
       await manager.cleanup();
       notifyAgentByJobId.clear();
       listeners.clear();
-      if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, undefined);
+      if (ctx.hasUI) ctx.ui.setWidget(WIDGET_KEY, undefined);
       latestContext = undefined;
     });
   };

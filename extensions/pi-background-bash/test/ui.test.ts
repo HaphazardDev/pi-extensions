@@ -50,12 +50,21 @@ const theme = {
   fg: (_color: string, text: string) => text,
 };
 
+function tui(rows = 24) {
+  return { requestRender: vi.fn(), terminal: { rows } };
+}
+
 describe("BackgroundJobsBrowser", () => {
   it("renders a navigable list with running and completed jobs", () => {
-    const browser = new BackgroundJobsBrowser({ requestRender: vi.fn() } as any, theme as any, source(), vi.fn());
-    const output = browser.render(100).join("\n");
+    const browser = new BackgroundJobsBrowser(tui() as any, theme as any, source(), vi.fn());
+    const lines = browser.render(100);
+    const output = lines.join("\n");
 
-    expect(output).toContain("Background Bash Jobs");
+    expect(lines).toHaveLength(24);
+    expect(lines.every((line) => line.length === 100)).toBe(true);
+    expect(lines[0]).toContain("BACKGROUND PROCESSES");
+    expect(lines.at(-2)).toContain("↑↓/jk navigate");
+    expect(output).toContain("Jobs (2)");
     expect(output).toContain("> bg-one");
     expect(output).toContain("running");
     expect(output).toContain("bg-two");
@@ -63,13 +72,17 @@ describe("BackgroundJobsBrowser", () => {
   });
 
   it("uses raw arrow and enter input to open the selected job output", async () => {
-    const browser = new BackgroundJobsBrowser({ requestRender: vi.fn() } as any, theme as any, source(), vi.fn());
+    const browser = new BackgroundJobsBrowser(tui() as any, theme as any, source(), vi.fn());
 
     browser.handleInput("\x1b[B");
     browser.handleInput("\r");
     await vi.waitFor(() => expect(browser.render(100).join("\n")).toContain("tests passed"));
     const output = browser.render(100).join("\n");
+    const lines = browser.render(100);
 
+    expect(lines).toHaveLength(24);
+    expect(lines[0]).toContain("BACKGROUND PROCESSES  •  OUTPUT");
+    expect(lines.at(-2)).toContain("↑↓/jk scroll");
     expect(output).toContain("bg-two • npm test");
     expect(output).toContain("stderr │ test warning");
     expect(output).toContain("stdout │ tests passed");
@@ -97,22 +110,22 @@ describe("BackgroundJobsBrowser", () => {
       stop: vi.fn(async () => true),
       subscribe: () => () => undefined,
     };
-    const browser = new BackgroundJobsBrowser({ requestRender: vi.fn() } as any, theme as any, dataSource, vi.fn());
+    const browser = new BackgroundJobsBrowser(tui() as any, theme as any, dataSource, vi.fn());
 
     browser.handleInput("\r");
     await vi.waitFor(() => expect(browser.render(100).join("\n")).toContain("line 2005"));
-    expect(dataSource.readLogs).toHaveBeenCalledWith("bg-one", { offset: 1_987, limit: 18 });
+    expect(dataSource.readLogs).toHaveBeenCalledWith("bg-one", { offset: 1_989, limit: 16 });
     browser.dispose();
   });
 
   it("returns from detail before closing the browser", () => {
     const done = vi.fn();
-    const browser = new BackgroundJobsBrowser({ requestRender: vi.fn() } as any, theme as any, source(), done);
+    const browser = new BackgroundJobsBrowser(tui() as any, theme as any, source(), done);
 
     browser.handleInput("\r");
     browser.handleInput("\x1b");
     expect(done).not.toHaveBeenCalled();
-    expect(browser.render(100).join("\n")).toContain("Background Bash Jobs");
+    expect(browser.render(100).join("\n")).toContain("BACKGROUND PROCESSES");
 
     browser.handleInput("q");
     expect(done).toHaveBeenCalledWith("close");
@@ -120,7 +133,7 @@ describe("BackgroundJobsBrowser", () => {
 
   it("stops the selected running job", async () => {
     const dataSource = source();
-    const browser = new BackgroundJobsBrowser({ requestRender: vi.fn() } as any, theme as any, dataSource, vi.fn());
+    const browser = new BackgroundJobsBrowser(tui() as any, theme as any, dataSource, vi.fn());
 
     browser.handleInput("s");
     await Promise.resolve();
@@ -132,7 +145,7 @@ describe("BackgroundJobsBrowser", () => {
     const dataSource = source();
     const stopMock = dataSource.stop as unknown as { mockRejectedValue(error: unknown): void };
     stopMock.mockRejectedValue(new Error("permission denied"));
-    const browser = new BackgroundJobsBrowser({ requestRender: vi.fn() } as any, theme as any, dataSource, vi.fn());
+    const browser = new BackgroundJobsBrowser(tui() as any, theme as any, dataSource, vi.fn());
 
     browser.handleInput("s");
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -144,7 +157,7 @@ describe("BackgroundJobsBrowser", () => {
   it("rerenders on job changes and unsubscribes when disposed", () => {
     const requestRender = vi.fn();
     const dataSource = source();
-    const browser = new BackgroundJobsBrowser({ requestRender } as any, theme as any, dataSource, vi.fn());
+    const browser = new BackgroundJobsBrowser({ requestRender, terminal: { rows: 24 } } as any, theme as any, dataSource, vi.fn());
 
     dataSource.emit();
     expect(requestRender).toHaveBeenCalled();

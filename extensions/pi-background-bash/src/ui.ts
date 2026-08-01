@@ -1,9 +1,8 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import { Key, matchesKey, truncateToWidth, type TUI } from "@earendil-works/pi-tui";
 import { formatDuration, formatJobStatus, truncateCommand } from "./format.js";
 import type { JobInfo, LogPage } from "./types.js";
 
-const OUTPUT_ROWS = 18;
 const POLL_INTERVAL_MS = 750;
 
 export interface BackgroundJobsDataSource {
@@ -28,7 +27,7 @@ export class BackgroundJobsBrowser {
   private disposed = false;
 
   constructor(
-    private readonly tui: { requestRender(): void },
+    private readonly tui: Pick<TUI, "requestRender" | "terminal">,
     private readonly theme: Theme,
     private readonly source: BackgroundJobsDataSource,
     private readonly done: (result: "close") => void,
@@ -69,9 +68,10 @@ export class BackgroundJobsBrowser {
     try {
       const summary = await this.source.readLogs(id, { offset: 0, limit: 1 });
       if (this.disposed || this.selectedJobId !== id || generation !== this.reloadGeneration) return;
-      const maxOffset = Math.max(0, summary.totalLines - OUTPUT_ROWS);
+      const outputRows = this.outputRows();
+      const maxOffset = Math.max(0, summary.totalLines - outputRows);
       const offset = Math.max(0, Math.min(maxOffset, this.outputOffset ?? maxOffset));
-      const page = await this.source.readLogs(id, { offset, limit: OUTPUT_ROWS });
+      const page = await this.source.readLogs(id, { offset, limit: outputRows });
       if (this.disposed || this.selectedJobId !== id || generation !== this.reloadGeneration) return;
       this.logPage = page;
       this.refresh();
@@ -93,7 +93,7 @@ export class BackgroundJobsBrowser {
 
   private move(delta: number): void {
     if (this.selectedJobId) {
-      const maxOffset = Math.max(0, (this.logPage?.totalLines ?? 0) - OUTPUT_ROWS);
+      const maxOffset = Math.max(0, (this.logPage?.totalLines ?? 0) - this.outputRows());
       const current = this.outputOffset ?? maxOffset;
       this.outputOffset = Math.max(0, Math.min(maxOffset, current + delta));
       void this.reloadLogs();
@@ -109,7 +109,7 @@ export class BackgroundJobsBrowser {
       this.selectedIndex = to === "start" ? 0 : Math.max(0, this.jobs().length - 1);
     } else {
       const totalLines = this.logPage?.totalLines ?? 0;
-      this.outputOffset = to === "start" ? 0 : Math.max(0, totalLines - OUTPUT_ROWS);
+      this.outputOffset = to === "start" ? 0 : Math.max(0, totalLines - this.outputRows());
       void this.reloadLogs();
     }
     this.refresh();
@@ -182,11 +182,28 @@ export class BackgroundJobsBrowser {
     lines.push(truncateToWidth(text, width));
   }
 
+  private viewportHeight(): number {
+    return Math.max(8, this.tui.terminal.rows);
+  }
+
+  private outputRows(): number {
+    return Math.max(1, this.viewportHeight() - 8);
+  }
+
+  private finishView(lines: string[], shortcuts: string, width: number): string[] {
+    const contentRows = this.viewportHeight() - 2;
+    const visible = lines.slice(0, contentRows);
+    while (visible.length < contentRows) visible.push("");
+    this.add(visible, this.theme.fg("dim", shortcuts), width);
+    this.add(visible, this.theme.fg("accent", "─".repeat(width)), width);
+    return visible.map((line) => truncateToWidth(line, width, "…", true));
+  }
+
   private renderList(width: number): string[] {
     const lines: string[] = [];
     const jobs = this.jobs();
+    this.add(lines, this.theme.fg("accent", ` BACKGROUND PROCESSES  •  Jobs (${jobs.length})`), width);
     this.add(lines, this.theme.fg("accent", "─".repeat(width)), width);
-    this.add(lines, this.theme.fg("accent", ` Background Bash Jobs (${jobs.length})`), width);
     lines.push("");
     if (this.errorMessage) {
       this.add(lines, this.theme.fg("error", ` ${this.errorMessage}`), width);
@@ -197,7 +214,10 @@ export class BackgroundJobsBrowser {
       this.add(lines, this.theme.fg("dim", " No background jobs in this Pi session."), width);
     } else {
       this.selectedIndex = Math.max(0, Math.min(this.selectedIndex, jobs.length - 1));
-      for (let index = 0; index < jobs.length; index++) {
+      const availableRows = Math.max(1, this.viewportHeight() - lines.length - 3);
+      const firstVisible = Math.max(0, Math.min(this.selectedIndex, jobs.length - availableRows));
+      const lastVisible = Math.min(jobs.length, firstVisible + availableRows);
+      for (let index = firstVisible; index < lastVisible; index++) {
         const job = jobs[index]!;
         const selected = index === this.selectedIndex;
         const prefix = selected ? ">" : " ";
@@ -208,10 +228,7 @@ export class BackgroundJobsBrowser {
       }
     }
 
-    lines.push("");
-    this.add(lines, this.theme.fg("dim", " ↑↓/jk navigate • Enter output • s stop • r refresh • q/Esc close"), width);
-    this.add(lines, this.theme.fg("accent", "─".repeat(width)), width);
-    return lines;
+    return this.finishView(lines, " ↑↓/jk navigate • Enter output • s stop • r refresh • q/Esc close", width);
   }
 
   private renderDetail(width: number): string[] {
@@ -226,9 +243,10 @@ export class BackgroundJobsBrowser {
     const offset = page?.offset ?? 0;
     const visible = page?.lines ?? [];
 
-    this.add(lines, this.theme.fg("accent", "─".repeat(width)), width);
+    this.add(lines, this.theme.fg("accent", " BACKGROUND PROCESSES  •  OUTPUT"), width);
     this.add(lines, this.theme.fg("accent", ` ${job.id} • ${job.command}`), width);
     this.add(lines, ` ${formatJobStatus(job)} • PID ${job.pid ?? "—"} • ${formatDuration(job.elapsedMs)} • ${job.cwd}`, width);
+    this.add(lines, this.theme.fg("accent", "─".repeat(width)), width);
     lines.push("");
     if (this.errorMessage) {
       this.add(lines, this.theme.fg("error", ` ${this.errorMessage}`), width);
@@ -250,8 +268,6 @@ export class BackgroundJobsBrowser {
     lines.push("");
     const totalLines = page?.totalLines ?? 0;
     this.add(lines, this.theme.fg("dim", ` lines ${totalLines === 0 ? 0 : offset + 1}-${Math.min(totalLines, offset + visible.length)} of ${totalLines}`), width);
-    this.add(lines, this.theme.fg("dim", " ↑↓/jk scroll • g/G start/end • s stop • r refresh • q/Esc jobs"), width);
-    this.add(lines, this.theme.fg("accent", "─".repeat(width)), width);
-    return lines;
+    return this.finishView(lines, " ↑↓/jk scroll • g/G start/end • s stop • r refresh • q/Esc jobs", width);
   }
 }

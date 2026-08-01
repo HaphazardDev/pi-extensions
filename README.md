@@ -73,7 +73,7 @@ Package docs:
 
 ### `@haphazarddev/pi-background-bash` (local testing)
 
-Run explicit background shell jobs, track their lifecycle, inspect paginated logs, and browse jobs and output in Pi's TUI with `/background-bash`.
+Run explicit background shell jobs, track their lifecycle, inspect paginated logs, and browse jobs and output in Pi's TUI with `/ps`.
 
 Install from this checkout while it is unpublished:
 

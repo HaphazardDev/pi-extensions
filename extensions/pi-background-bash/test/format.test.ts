@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDuration, formatJobStatus, formatStatusLine, truncateCommand } from "../src/format.js";
+import { formatDuration, formatJobStatus, formatWidgetLines, truncateCommand } from "../src/format.js";
 import type { JobInfo } from "../src/types.js";
 
 function job(overrides: Partial<JobInfo> = {}): JobInfo {
@@ -30,10 +30,10 @@ describe("background bash formatting", () => {
     expect(formatDuration(milliseconds)).toBe(expected);
   });
 
-  it("reports running and total job counts", () => {
+  it("formats an above-prompt process summary with the short browser command", () => {
     const jobs = [job(), job({ id: "bg-done", status: "exited", exitCode: 0 })];
-    expect(formatStatusLine(jobs)).toBe("⚙ 1 running • 2 jobs • /background-bash");
-    expect(formatStatusLine([])).toBeUndefined();
+    expect(formatWidgetLines(jobs)).toEqual(["⚙ 1 running • 2 jobs • /ps"]);
+    expect(formatWidgetLines([])).toBeUndefined();
   });
 
   it("renders distinct final states", () => {
