@@ -29,6 +29,9 @@ export class BackgroundJobsBrowser {
   private errorMessage: string | undefined;
   private confirmationMessage: string | undefined;
   private pendingConfirmation: string | undefined;
+  private filterQuery = "";
+  private filterDraft = "";
+  private filterEditing = false;
   private disposed = false;
 
   constructor(
@@ -86,7 +89,12 @@ export class BackgroundJobsBrowser {
   }
 
   private jobs(): JobInfo[] {
-    return [...this.source.list()].sort((left, right) => {
+    const query = (this.filterEditing ? this.filterDraft : this.filterQuery).trim().toLocaleLowerCase();
+    return [...this.source.list()].filter((job) => {
+      if (!query) return true;
+      return [job.id, job.label ?? "", job.command, job.status, formatJobStatus(job)]
+        .some((value) => value.toLocaleLowerCase().includes(query));
+    }).sort((left, right) => {
       const runningDifference = Number(right.status === "running") - Number(left.status === "running");
       if (runningDifference !== 0) return runningDifference;
       return Date.parse(right.startedAt) - Date.parse(left.startedAt);
@@ -133,6 +141,43 @@ export class BackgroundJobsBrowser {
   }
 
   handleInput(data: string): void {
+    if (this.filterEditing) {
+      if (matchesKey(data, Key.enter)) {
+        this.filterQuery = this.filterDraft;
+        this.filterEditing = false;
+        this.resetListSelection();
+        this.refresh();
+        return;
+      }
+      if (matchesKey(data, Key.escape)) {
+        this.filterDraft = this.filterQuery;
+        this.filterEditing = false;
+        this.resetListSelection();
+        this.refresh();
+        return;
+      }
+      if (data === "\x7f" || data === "\b") {
+        this.filterDraft = Array.from(this.filterDraft).slice(0, -1).join("");
+        this.resetListSelection();
+        this.refresh();
+        return;
+      }
+      if (isPrintableInput(data)) {
+        this.filterDraft += data;
+        this.resetListSelection();
+        this.refresh();
+      }
+      return;
+    }
+    if (data === "/" && !this.selectedJobId) {
+      this.filterDraft = "";
+      this.filterEditing = true;
+      this.confirmationMessage = undefined;
+      this.pendingConfirmation = undefined;
+      this.resetListSelection();
+      this.refresh();
+      return;
+    }
     if (matchesKey(data, Key.up) || data === "k") {
       this.move(-1);
       return;
@@ -232,6 +277,11 @@ export class BackgroundJobsBrowser {
     return lines;
   }
 
+  private resetListSelection(): void {
+    this.selectedIndex = 0;
+    this.selectedListJobId = undefined;
+  }
+
   private add(lines: string[], text: string, width: number): void {
     lines.push(truncateToWidth(text, width));
   }
@@ -256,9 +306,17 @@ export class BackgroundJobsBrowser {
   private renderList(width: number): string[] {
     const lines: string[] = [];
     const jobs = this.jobs();
-    this.add(lines, this.theme.fg("accent", ` BACKGROUND PROCESSES  •  Jobs (${jobs.length})`), width);
+    const totalJobs = this.source.list().length;
+    const filterActive = this.filterEditing || this.filterQuery.length > 0;
+    const count = filterActive ? `${jobs.length}/${totalJobs}` : String(jobs.length);
+    this.add(lines, this.theme.fg("accent", ` BACKGROUND PROCESSES  •  Jobs (${count})`), width);
     this.add(lines, this.theme.fg("accent", "─".repeat(width)), width);
     lines.push("");
+    if (filterActive) {
+      const query = this.filterEditing ? `${this.filterDraft}_` : this.filterQuery;
+      this.add(lines, this.theme.fg("accent", ` Filter: ${query}`), width);
+      lines.push("");
+    }
     if (this.errorMessage) {
       this.add(lines, this.theme.fg("error", ` ${this.errorMessage}`), width);
       lines.push("");
@@ -270,7 +328,10 @@ export class BackgroundJobsBrowser {
     }
 
     if (jobs.length === 0) {
-      this.add(lines, this.theme.fg("dim", " No background jobs in this Pi session."), width);
+      const message = totalJobs === 0
+        ? " No background jobs in this Pi session."
+        : " No background jobs match this filter.";
+      this.add(lines, this.theme.fg("dim", message), width);
     } else {
       this.selectedIndex = Math.max(0, Math.min(this.selectedIndex, jobs.length - 1));
       const availableRows = Math.max(1, this.viewportHeight() - lines.length - 3);
@@ -288,7 +349,10 @@ export class BackgroundJobsBrowser {
       }
     }
 
-    return this.finishView(lines, " ↑↓/jk move • Enter output • / filter • s stop • d delete • c clear • q/Esc close", width);
+    const shortcuts = this.filterEditing
+      ? " Type to filter • Enter apply • Esc cancel"
+      : " ↑↓/jk move • Enter output • / filter • s stop • d delete • c clear • q/Esc close";
+    return this.finishView(lines, shortcuts, width);
   }
 
   private renderDetail(width: number): string[] {
@@ -330,4 +394,11 @@ export class BackgroundJobsBrowser {
     this.add(lines, this.theme.fg("dim", ` lines ${totalLines === 0 ? 0 : offset + 1}-${Math.min(totalLines, offset + visible.length)} of ${totalLines}`), width);
     return this.finishView(lines, " ↑↓/jk scroll • g/G start/end • s stop • r refresh • q/Esc jobs", width);
   }
+}
+
+function isPrintableInput(data: string): boolean {
+  return data.length > 0 && Array.from(data).every((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint >= 32 && codePoint !== 127;
+  });
 }

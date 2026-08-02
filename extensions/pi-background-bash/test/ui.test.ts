@@ -146,6 +146,46 @@ describe("BackgroundJobsBrowser", () => {
     expect(output).not.toContain("bg-failed");
   });
 
+  it("filters live by status, command, ID, or label and supports apply/cancel editing", () => {
+    const dataSource = source([
+      job({ id: "bg-server", label: "development server", command: "npm run dev" }),
+      job({ id: "bg-unit", label: "unit tests", command: "npm test", status: "exited", exitCode: 0 }),
+      job({ id: "bg-build", command: "npm run build", status: "failed", exitCode: 1 }),
+    ]);
+    const browser = new BackgroundJobsBrowser(tui() as any, theme as any, dataSource, vi.fn());
+
+    browser.handleInput("/");
+    for (const character of "failed") browser.handleInput(character);
+    let output = browser.render(100).join("\n");
+    expect(output).toContain("Filter: failed_");
+    expect(output).toContain("Jobs (1/3)");
+    expect(output).toContain("bg-build");
+    expect(output).not.toContain("bg-server");
+
+    browser.handleInput("\x7f");
+    expect(browser.render(100).join("\n")).toContain("Filter: faile_");
+    browser.handleInput("d");
+    browser.handleInput("\r");
+    expect(browser.render(100).join("\n")).toContain("Filter: failed");
+
+    browser.handleInput("/");
+    for (const character of "unit tests") browser.handleInput(character);
+    output = browser.render(100).join("\n");
+    expect(output).toContain("bg-unit");
+    expect(output).not.toContain("bg-build");
+    browser.handleInput("\x1b");
+    output = browser.render(100).join("\n");
+    expect(output).toContain("Filter: failed");
+    expect(output).toContain("bg-build");
+  });
+
+  it("shows a clear empty state when no jobs match the filter", () => {
+    const browser = new BackgroundJobsBrowser(tui() as any, theme as any, source(), vi.fn());
+    browser.handleInput("/");
+    for (const character of "not-present") browser.handleInput(character);
+    expect(browser.render(100).join("\n")).toContain("No background jobs match this filter.");
+  });
+
   it("uses raw arrow and enter input to open the selected job output", async () => {
     const browser = new BackgroundJobsBrowser(tui() as any, theme as any, source(), vi.fn());
 
