@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createMockContext, createMockPi, createMockUi } from "../../test-utils/pi.js";
 import { createBackgroundBashExtension } from "../src/index.js";
+import { DEFAULT_BACKGROUND_BASH_CONFIG, type BackgroundBashConfigResult } from "../src/config.js";
 import type { JobManagerOptions } from "../src/job-manager.js";
 import type { JobInfo } from "../src/types.js";
 
@@ -22,7 +23,10 @@ function job(overrides: Partial<JobInfo> = {}): JobInfo {
   };
 }
 
-function setup() {
+function setup(configResult: BackgroundBashConfigResult = {
+  config: { ...DEFAULT_BACKGROUND_BASH_CONFIG },
+  diagnostics: [],
+}) {
   const jobs: JobInfo[] = [];
   const managers: any[] = [];
   const createManager = vi.fn((options: JobManagerOptions) => {
@@ -44,7 +48,7 @@ function setup() {
     return manager as any;
   });
   const pi = createMockPi();
-  createBackgroundBashExtension({ createManager })(pi);
+  createBackgroundBashExtension({ createManager, loadConfig: () => configResult })(pi);
   return { pi, createManager, managers, jobs };
 }
 
@@ -57,6 +61,64 @@ describe("pi-background-bash extension", () => {
     expect(pi.shortcuts.get("ctrl+alt+k")).toBeDefined();
     expect(pi.handlers.get("session_start")).toHaveLength(1);
     expect(pi.handlers.get("session_shutdown")).toHaveLength(1);
+  });
+
+  it("uses the configured shortcut and widget icon", async () => {
+    const { pi, managers, jobs } = setup({
+      config: { ...DEFAULT_BACKGROUND_BASH_CONFIG, shortcut: "ctrl+shift+b", widgetIcon: "&" },
+      diagnostics: [],
+    });
+    expect(pi.shortcuts.get("ctrl+shift+b")).toBeDefined();
+    expect(pi.shortcuts.get("ctrl+alt+k")).toBeUndefined();
+    const ui = createMockUi();
+    const ctx = createMockContext({ ui, cwd: "/repo", mode: "tui" });
+    await pi.handlers.get("session_start")[0]({ type: "session_start", reason: "startup" }, ctx);
+    const running = job();
+    jobs.push(running);
+    managers[0].options.onChange(running);
+
+    expect(ui.setWidget).toHaveBeenLastCalledWith(
+      "background-bash",
+      ["& npm test • running 0s • /ps"],
+      { placement: "aboveEditor" },
+    );
+  });
+
+  it("can suppress UI completion notifications and the idle completed widget without suppressing agent wake-up", async () => {
+    const { pi, managers, jobs } = setup({
+      config: {
+        ...DEFAULT_BACKGROUND_BASH_CONFIG,
+        completionNotifications: false,
+        showLatestCompleted: false,
+      },
+      diagnostics: [],
+    });
+    const ui = createMockUi();
+    const ctx = createMockContext({ ui, cwd: "/repo", mode: "tui" });
+    await pi.handlers.get("session_start")[0]({ type: "session_start", reason: "startup" }, ctx);
+    const start = pi.tools.find((candidate: any) => candidate.name === "background_bash_start");
+    await start.execute("start", { command: "npm test" }, undefined, undefined, ctx);
+    Object.assign(jobs[0]!, { status: "exited", exitCode: 0, endedAt: "2026-07-27T00:00:01.000Z" });
+    managers[0].options.onComplete(jobs[0]);
+
+    expect(ui.notify).not.toHaveBeenCalled();
+    expect(ui.setWidget).toHaveBeenLastCalledWith("background-bash", undefined);
+    expect(pi.sendMessage).toHaveBeenCalled();
+  });
+
+  it("reports malformed configuration once after the UI starts", async () => {
+    const { pi } = setup({
+      config: { ...DEFAULT_BACKGROUND_BASH_CONFIG },
+      diagnostics: ["shortcut must be a usable Pi key identifier"],
+    });
+    const ui = createMockUi();
+    const ctx = createMockContext({ ui, cwd: "/repo", mode: "tui" });
+
+    await pi.handlers.get("session_start")[0]({ type: "session_start", reason: "startup" }, ctx);
+    await pi.handlers.get("session_start")[0]({ type: "session_start", reason: "switch" }, ctx);
+
+    expect(ui.notify).toHaveBeenCalledTimes(1);
+    expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("shortcut must be a usable Pi key identifier"), "warning");
   });
 
   it("shows the active command and theme-colored status above the editor", async () => {
@@ -157,6 +219,32 @@ describe("pi-background-bash extension", () => {
       { triggerTurn: true, deliverAs: "followUp" },
     );
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("completed"), "info");
+  });
+
+  it("preserves the wake-up preference when completion arrives before start returns", async () => {
+    const { pi, managers, jobs } = setup();
+    const ctx = createMockContext({ cwd: "/repo", mode: "tui" });
+    await pi.handlers.get("session_start")[0]({ type: "session_start", reason: "startup" }, ctx);
+    managers[0].start.mockImplementation(async ({ command, cwd, timeoutMs }: any) => {
+      const completed = job({
+        command,
+        cwd,
+        timeoutMs: timeoutMs ?? null,
+        status: "failed",
+        endedAt: "2026-07-27T00:00:01.000Z",
+      });
+      jobs.push(completed);
+      managers[0].options.onComplete(completed);
+      return completed;
+    });
+
+    const start = pi.tools.find((candidate: any) => candidate.name === "background_bash_start");
+    await start.execute("start", { command: "missing-command", notifyAgent: true }, undefined, undefined, ctx);
+
+    expect(pi.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ customType: "background-bash-result" }),
+      { triggerTurn: true, deliverAs: "followUp" },
+    );
   });
 
   it("does not wake the agent when notifyAgent is false", async () => {

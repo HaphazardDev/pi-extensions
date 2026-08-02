@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import type { KeyId } from "@earendil-works/pi-tui";
 
 export interface BackgroundBashConfig {
-  shortcut: string;
+  shortcut: KeyId;
   widgetIcon: string;
   completionNotifications: boolean;
   showLatestCompleted: boolean;
@@ -28,8 +29,9 @@ export function parseBackgroundBashConfig(value: unknown): BackgroundBashConfigR
   if (!isRecord(value)) return { config, diagnostics: ["configuration must be a JSON object"] };
 
   if ("shortcut" in value) {
-    if (typeof value.shortcut === "string" && value.shortcut.trim().length > 0) config.shortcut = value.shortcut.trim();
-    else diagnostics.push("shortcut must be a non-empty string");
+    const shortcut = typeof value.shortcut === "string" ? value.shortcut.trim() : "";
+    if (isKeyId(shortcut)) config.shortcut = shortcut;
+    else diagnostics.push("shortcut must be a usable Pi key identifier");
   }
   if ("widgetIcon" in value) {
     if (typeof value.widgetIcon === "string") config.widgetIcon = value.widgetIcon;
@@ -71,6 +73,33 @@ export function loadBackgroundBashConfig(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const SPECIAL_KEYS = new Set([
+  "escape", "esc", "enter", "return", "tab", "space", "backspace", "delete", "insert", "clear",
+  "home", "end", "pageUp", "pageDown", "up", "down", "left", "right",
+  "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12",
+]);
+const SYMBOL_KEYS = new Set(Array.from("`-=[]\\;',./!@#$%^&*()_+|~{}:<>?"));
+const MODIFIERS = new Set(["ctrl", "shift", "alt", "super"]);
+
+function isKeyId(value: string): value is KeyId {
+  const parts = value.split("+");
+  const base = parts.pop() ?? "";
+  const modifiers = parts;
+  const validBase = /^[a-z0-9]$/.test(base) || SPECIAL_KEYS.has(base) || SYMBOL_KEYS.has(base);
+  const hasDispatchableModifiers = !(["escape", "esc"].includes(base) || /^f(?:[1-9]|1[0-2])$/.test(base))
+    ? true
+    : modifiers.length === 0;
+  const hasDispatchableClearModifiers = base !== "clear"
+    || modifiers.length === 0
+    || (modifiers.length === 1 && (modifiers[0] === "ctrl" || modifiers[0] === "shift"));
+  return validBase
+    && hasDispatchableModifiers
+    && hasDispatchableClearModifiers
+    && modifiers.length <= MODIFIERS.size
+    && modifiers.every((modifier) => MODIFIERS.has(modifier))
+    && new Set(modifiers).size === modifiers.length;
 }
 
 function errorMessage(error: unknown): string {

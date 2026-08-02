@@ -19,9 +19,10 @@
 - Jobs are session-owned by default. Pi shutdown sends `SIGTERM`, waits briefly, then escalates to `SIGKILL`.
 - POSIX uses detached process groups and negative-PID signals. Windows uses task termination fallback and is kept behind injected platform/process adapters for testing.
 - Completion records include exit code or signal, elapsed time, timestamps, command, cwd, and timeout/stop outcome.
-- Completion messages wake the agent as a follow-up only when requested by the start call; UI notifications and the above-editor widget always update.
-- The above-editor widget uses Nerd Font's dim `run all` glyph and shows the newest running command with a theme-colored status and elapsed time, e.g. ` npm run build • running 8s • +1 more • /ps`; when idle, it shows the latest completed command and outcome.
-- `/ps` or `Ctrl+Alt+K` opens a focused full-screen, keyboard-navigable process view with bottom-pinned shortcuts. Enter opens output; up/down or j/k navigate; s stops a running job; q/Escape returns or closes. The output view also exposes `r` to reload logs.
+- Completion messages wake the agent as a follow-up only when requested by the start call. UI notifications are independently configurable.
+- The above-editor widget uses Nerd Font's dim `run all` glyph by default and shows the newest running command with a theme-colored status and elapsed time, e.g. ` npm run build • running 8s • +1 more • /ps`; the glyph/ASCII fallback and idle completed-job visibility are configurable.
+- `/ps` or the configurable `Ctrl+Alt+K` default opens a focused full-screen process view with bottom-pinned shortcuts. Running jobs are prioritized newest-first; `/` filters; `d`/`c` confirm completed-job cleanup; and output exposes explicit `FOLLOWING`/`PAUSED` states with `f` or `G` returning to the live tail.
+- Start calls may attach an optional human-readable label. Log storage/read failures are surfaced in job metadata and the output browser.
 
 ## Acceptance criteria
 
@@ -36,6 +37,8 @@
 9. Job completion can inject a structured follow-up result and updates Pi status/notifications.
 10. The TUI supports list and detail navigation and renders current output.
 11. The package builds, typechecks, tests, and packs without publishing.
+12. Jobs can be labeled, filtered, prioritized, and pruned without altering model-facing process tools.
+13. UI preferences load safely from validated configuration and malformed fields fall back with one warning.
 
 ---
 

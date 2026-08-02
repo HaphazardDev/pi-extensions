@@ -8,6 +8,8 @@
 
 **Tech Stack:** TypeScript, Pi extension API/TUI, TypeBox, Node child processes/filesystem, Vitest.
 
+**Progress:** Tasks 1–7 implemented, verified test-first, dogfooded in Pi 0.83, and independently reviewed with no remaining blockers. Final local commit completed; nothing pushed or published.
+
 ---
 
 ### Task 1: Configuration and labels

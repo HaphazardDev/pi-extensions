@@ -1,5 +1,5 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { Key, matchesKey, truncateToWidth, type TUI } from "@earendil-works/pi-tui";
+import { decodeKittyPrintable, Key, matchesKey, truncateToWidth, type TUI } from "@earendil-works/pi-tui";
 import { formatDuration, formatJobStatus, truncateCommand } from "./format.js";
 import type { JobInfo, LogPage } from "./types.js";
 
@@ -42,6 +42,7 @@ export class BackgroundJobsBrowser {
     private readonly done: (result: "close") => void,
   ) {
     this.unsubscribe = this.source.subscribe(() => {
+      this.clearConfirmation();
       void this.reloadLogs();
       this.refresh();
     });
@@ -109,15 +110,22 @@ export class BackgroundJobsBrowser {
 
   private selectedJob(): JobInfo | undefined {
     const jobs = this.jobs();
-    if (jobs.length === 0) return undefined;
+    this.reconcileListSelection(jobs);
+    return jobs[this.selectedIndex];
+  }
+
+  private reconcileListSelection(jobs: JobInfo[]): void {
+    if (jobs.length === 0) {
+      this.selectedIndex = 0;
+      this.selectedListJobId = undefined;
+      return;
+    }
     if (this.selectedListJobId) {
       const anchoredIndex = jobs.findIndex((job) => job.id === this.selectedListJobId);
       if (anchoredIndex >= 0) this.selectedIndex = anchoredIndex;
     }
     this.selectedIndex = Math.max(0, Math.min(this.selectedIndex, jobs.length - 1));
-    const selected = jobs[this.selectedIndex];
-    this.selectedListJobId = selected?.id;
-    return selected;
+    this.selectedListJobId = jobs[this.selectedIndex]?.id;
   }
 
   private move(delta: number): void {
@@ -148,6 +156,9 @@ export class BackgroundJobsBrowser {
   }
 
   handleInput(data: string): void {
+    const input = decodeKittyPrintable(data) ?? data;
+    const confirmationKey = this.pendingConfirmation?.startsWith("remove:") ? "d" : "c";
+    if (this.pendingConfirmation && input !== confirmationKey) this.clearConfirmation();
     if (this.filterEditing) {
       if (matchesKey(data, Key.enter)) {
         this.filterQuery = this.filterDraft;
@@ -163,20 +174,21 @@ export class BackgroundJobsBrowser {
         this.refresh();
         return;
       }
-      if (data === "\x7f" || data === "\b") {
+      if (matchesKey(data, Key.backspace) || input === "\x7f" || input === "\b") {
         this.filterDraft = Array.from(this.filterDraft).slice(0, -1).join("");
         this.resetListSelection();
         this.refresh();
         return;
       }
-      if (isPrintableInput(data)) {
-        this.filterDraft += data;
+      const printable = decodeKittyPrintable(data) ?? (isPrintableInput(data) ? data : undefined);
+      if (printable) {
+        this.filterDraft += printable;
         this.resetListSelection();
         this.refresh();
       }
       return;
     }
-    if (data === "/" && !this.selectedJobId) {
+    if (input === "/" && !this.selectedJobId) {
       this.filterDraft = "";
       this.filterEditing = true;
       this.confirmationMessage = undefined;
@@ -185,19 +197,19 @@ export class BackgroundJobsBrowser {
       this.refresh();
       return;
     }
-    if (matchesKey(data, Key.up) || data === "k") {
+    if (matchesKey(data, Key.up) || input === "k") {
       this.move(-1);
       return;
     }
-    if (matchesKey(data, Key.down) || data === "j") {
+    if (matchesKey(data, Key.down) || input === "j") {
       this.move(1);
       return;
     }
-    if (data === "g") {
+    if (input === "g") {
       this.jump("start");
       return;
     }
-    if (data === "G") {
+    if (input === "G") {
       this.jump("end");
       return;
     }
@@ -209,7 +221,7 @@ export class BackgroundJobsBrowser {
       this.refresh();
       return;
     }
-    if (data === "s") {
+    if (input === "s") {
       const job = this.selectedJobId ? this.source.get(this.selectedJobId) : this.selectedJob();
       if (job?.status === "running") {
         this.errorMessage = undefined;
@@ -222,7 +234,7 @@ export class BackgroundJobsBrowser {
       }
       return;
     }
-    if (data === "d" && !this.selectedJobId) {
+    if (input === "d" && !this.selectedJobId) {
       const job = this.selectedJob();
       if (!job || job.status === "running") return;
       const action = `remove:${job.id}`;
@@ -234,6 +246,7 @@ export class BackgroundJobsBrowser {
       }
       this.pendingConfirmation = undefined;
       this.confirmationMessage = undefined;
+      this.errorMessage = undefined;
       void this.source.remove(job.id)
         .catch((error: unknown) => {
           this.errorMessage = `Failed to remove ${job.id}: ${error instanceof Error ? error.message : String(error)}`;
@@ -241,8 +254,8 @@ export class BackgroundJobsBrowser {
         .finally(() => this.refresh());
       return;
     }
-    if (data === "c" && !this.selectedJobId) {
-      const completedCount = this.jobs().filter((job) => job.status !== "running").length;
+    if (input === "c" && !this.selectedJobId) {
+      const completedCount = this.source.list().filter((job) => job.status !== "running").length;
       if (completedCount === 0) return;
       if (this.pendingConfirmation !== "clear-completed") {
         this.pendingConfirmation = "clear-completed";
@@ -252,6 +265,7 @@ export class BackgroundJobsBrowser {
       }
       this.pendingConfirmation = undefined;
       this.confirmationMessage = undefined;
+      this.errorMessage = undefined;
       void this.source.clearCompleted()
         .catch((error: unknown) => {
           this.errorMessage = `Failed to clear completed jobs: ${error instanceof Error ? error.message : String(error)}`;
@@ -259,18 +273,18 @@ export class BackgroundJobsBrowser {
         .finally(() => this.refresh());
       return;
     }
-    if (data === "f" && this.selectedJobId) {
+    if (input === "f" && this.selectedJobId) {
       this.outputOffset = undefined;
       void this.reloadLogs();
       this.refresh();
       return;
     }
-    if (data === "r") {
+    if (input === "r") {
       void this.reloadLogs();
       this.refresh();
       return;
     }
-    if (matchesKey(data, Key.escape) || data === "q") {
+    if (matchesKey(data, Key.escape) || input === "q") {
       if (this.selectedJobId) {
         this.selectedJobId = undefined;
         this.outputOffset = undefined;
@@ -293,6 +307,11 @@ export class BackgroundJobsBrowser {
   private resetListSelection(): void {
     this.selectedIndex = 0;
     this.selectedListJobId = undefined;
+  }
+
+  private clearConfirmation(): void {
+    this.pendingConfirmation = undefined;
+    this.confirmationMessage = undefined;
   }
 
   private add(lines: string[], text: string, width: number): void {
@@ -348,7 +367,7 @@ export class BackgroundJobsBrowser {
         : " No background jobs match this filter.";
       this.add(lines, this.theme.fg("dim", message), width);
     } else {
-      this.selectedIndex = Math.max(0, Math.min(this.selectedIndex, jobs.length - 1));
+      this.reconcileListSelection(jobs);
       const availableRows = Math.max(1, this.viewportHeight() - lines.length - 3);
       const firstVisible = Math.max(0, Math.min(this.selectedIndex, jobs.length - availableRows));
       const lastVisible = Math.min(jobs.length, firstVisible + availableRows);

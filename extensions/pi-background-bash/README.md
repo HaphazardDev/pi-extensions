@@ -11,7 +11,7 @@ The extension leaves Pi's built-in `bash` tool unchanged. The agent must deliber
 Each job is owned by the current Pi process and records:
 
 - a stable `bg-…` job ID and operating-system PID
-- command and working directory
+- command, optional human-readable label, and working directory
 - start/end timestamps and elapsed time
 - running, exited, failed, timed-out, or stopped state
 - exit code or terminating signal
@@ -45,9 +45,9 @@ pi remove @haphazarddev/pi-background-bash
 | `background_bash_list` | List jobs owned by this Pi process |
 | `background_bash_status` | Read one job's current state and exit metadata |
 | `background_bash_logs` | Read a bounded page of stdout/stderr log lines |
-| `background_bash_stop` | Gracefully stop a running job, with optional force escalation |
+| `background_bash_stop` | Gracefully stop a running job, with force escalation after the grace period |
 
-A start call accepts a command, optional working directory, optional timeout, and an option controlling whether completion wakes the agent. Ordinary commands should continue to use Pi's built-in `bash` tool.
+A start call accepts a command, optional human-readable `label`, optional working directory, optional timeout, and an option controlling whether completion wakes the agent. Labels are trimmed, limited to 80 characters, displayed and searchable in `/ps`, and preserved in structured list/status results. Ordinary commands should continue to use Pi's built-in `bash` tool.
 
 ## TUI
 
@@ -57,9 +57,9 @@ An above-prompt widget shows the newest running command, its theme-colored statu
  npm run build • running 8s • +1 more • /ps
 ```
 
-The leading glyph is Nerd Font's `cod-run_all` (`U+EB9E`) and is rendered in a neutral, dim color.
+The default leading glyph is Nerd Font's `cod-run_all` (`U+EB9E`) and is rendered in a neutral, dim color. It can be replaced with an ASCII character or hidden through configuration.
 
-When no jobs are running, it shows the most recently completed command with a success, failure, timeout, or stopped color.
+When no jobs are running, it shows the most recently completed command with a success, failure, timeout, or stopped color unless that idle state is disabled in configuration.
 
 Open the browser with:
 
@@ -67,19 +67,51 @@ Open the browser with:
 /ps
 ```
 
-The browser opens as a focused full-screen process view with a prominent title. Its shortcut bar stays pinned to the bottom while the job list or output fills the available terminal height.
+The browser opens as a focused full-screen process view with a prominent title. Its shortcut bar stays pinned to the bottom while the job list or output fills the available terminal height. Running jobs appear first, newest first, followed by completed jobs newest first; the newest running job is selected when the browser first opens.
 
-| Key | Action |
+| Key | View | Action |
+| --- | --- | --- |
+| `Ctrl+Alt+K` | Prompt | Open the background process browser; configurable |
+| `↑` / `↓`, `j` / `k` | Both | Navigate jobs or output |
+| `Enter` | Jobs | Open the selected job's output |
+| `/` | Jobs | Filter live by label, command, job ID, or status; Enter applies and Escape cancels editing |
+| `s` | Both | Stop the selected running job |
+| `d` twice | Jobs | Delete the selected completed job and its logs |
+| `c` twice | Jobs | Clear all completed jobs and their logs |
+| `f` | Output | Resume following live output after scrolling pauses it |
+| `r` | Output | Reload the displayed output |
+| `g` / `G` | Output | Jump to the beginning or return to the live end (`FOLLOWING`) |
+| `Esc`, `q` | Both | Return to the job list or close the browser |
+
+The output view explicitly shows `FOLLOWING` while tailing live output and `PAUSED` after scrolling away from the end. The browser continues polling while paused without moving the selected page. Log read/write failures appear as warnings in the output view rather than being silently discarded.
+
+## Configuration
+
+Preferences are loaded when the extension starts from:
+
+```text
+~/.pi/agent/extensions/pi-background-bash/config.json
+```
+
+The complete default configuration is:
+
+```json
+{
+  "shortcut": "ctrl+alt+k",
+  "widgetIcon": "",
+  "completionNotifications": true,
+  "showLatestCompleted": true
+}
+```
+
+| Field | Meaning |
 | --- | --- |
-| `Ctrl+Alt+K` | Open the background process browser from the prompt |
-| `↑` / `↓`, `j` / `k` | Navigate jobs or output |
-| `Enter` | Open the selected job |
-| `Esc`, `q` | Return to the list or close |
-| `r` | Reload the displayed output |
-| `s` | Stop the selected running job |
-| `g` / `G` | Jump to the beginning/end of output |
+| `shortcut` | A usable Pi key identifier accepted by Pi's shortcut dispatcher, such as `ctrl+shift+b` |
+| `widgetIcon` | Widget prefix; use `"&"` for an ASCII fallback or `""` to hide it |
+| `completionNotifications` | Show Pi UI notifications when jobs finish; this does not change per-job `notifyAgent` wake-up behavior |
+| `showLatestCompleted` | Keep the latest completed job in the widget while no job is running |
 
-The browser refreshes when jobs emit output or change state.
+Malformed fields fall back independently to their defaults and produce one warning after the Pi UI starts. Use `/reload` or restart Pi after changing this file.
 
 ## Permission-system parity
 

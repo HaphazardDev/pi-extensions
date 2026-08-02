@@ -183,14 +183,13 @@ export class LogStore {
   async remove(path: string): Promise<void> {
     const state = this.requireLog(path);
     if (!state.closed) throw new Error("cannot remove an open log");
-    const [writeResult] = await Promise.allSettled([state.writeChain]);
-    this.pending.delete(path);
+    await Promise.allSettled([state.writeChain]);
     await Promise.all([
       rm(path, { force: true }),
       rm(indexPath(path), { force: true }),
       rm(partialPath(path), { force: true }),
     ]);
-    if (writeResult?.status === "rejected") throw writeResult.reason;
+    this.pending.delete(path);
   }
 
   async cleanup(): Promise<void> {

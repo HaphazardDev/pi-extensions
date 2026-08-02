@@ -1,4 +1,4 @@
-import { access, rm, stat } from "node:fs/promises";
+import { access, mkdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -208,5 +208,31 @@ describe("LogStore", () => {
     } finally {
       await store.cleanup();
     }
+  });
+
+  it("can remove a closed log after its queued write failed", async () => {
+    const store = new LogStore();
+    const path = await store.createLog("bg-failed-remove");
+    await rm(store.directory, { recursive: true, force: true });
+    await expect(store.append(path, "stdout", "lost\n")).rejects.toThrow();
+    await expect(store.closeLog(path)).rejects.toThrow();
+
+    await expect(store.remove(path)).resolves.toBeUndefined();
+    await expect(store.read(path)).rejects.toThrow("unknown log path");
+    await store.cleanup();
+  });
+
+  it("keeps a log registered so a failed file deletion can be retried", async () => {
+    const store = new LogStore();
+    const path = await store.createLog("bg-retry-remove");
+    await store.closeLog(path);
+    await rm(path);
+    await mkdir(path);
+
+    await expect(store.remove(path)).rejects.toThrow();
+    await rm(path, { recursive: true });
+    await expect(store.remove(path)).resolves.toBeUndefined();
+    await expect(store.read(path)).rejects.toThrow("unknown log path");
+    await store.cleanup();
   });
 });
