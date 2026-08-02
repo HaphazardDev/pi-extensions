@@ -27,12 +27,15 @@ function source(jobs = [job(), job({ id: "bg-two", command: "npm test", status: 
     ["bg-two", { offset: 0, limit: 200, lines: [{ stream: "stderr", text: "test warning" }, { stream: "stdout", text: "tests passed" }], totalLines: 2, hasMore: false, nextOffset: null }],
   ]);
 
-  const dataSource: BackgroundJobsDataSource & { emit: () => void } = {
+  const dataSource: BackgroundJobsDataSource & { emit: () => void; setPage: (id: string, page: LogPage) => void } = {
     list: vi.fn(() => jobs),
     get: vi.fn((id: string) => jobs.find((candidate) => candidate.id === id)),
     readLogs: vi.fn(async (id: string, options?: { offset?: number; limit?: number }) => {
       const page = pages.get(id)!;
-      return { ...page, offset: options?.offset ?? page.offset, limit: options?.limit ?? page.limit };
+      const offset = options?.offset ?? page.offset;
+      const limit = options?.limit ?? page.limit;
+      const lines = page.lines.slice(offset, offset + limit);
+      return { ...page, offset, limit, lines, hasMore: offset + lines.length < page.totalLines };
     }),
     stop: vi.fn(async (_id: string) => true),
     remove: vi.fn(async (id: string) => {
@@ -60,6 +63,7 @@ function source(jobs = [job(), job({ id: "bg-two", command: "npm test", status: 
       };
     }),
     emit: () => listener?.(),
+    setPage: (id, page) => pages.set(id, page),
   };
   return dataSource;
 }
@@ -231,8 +235,60 @@ describe("BackgroundJobsBrowser", () => {
 
     browser.handleInput("\r");
     await vi.waitFor(() => expect(browser.render(100).join("\n")).toContain("line 2005"));
-    expect(dataSource.readLogs).toHaveBeenCalledWith("bg-one", { offset: 1_989, limit: 16 });
+    expect(dataSource.readLogs).toHaveBeenCalledWith("bg-one", { offset: 1_990, limit: 15 });
     browser.dispose();
+  });
+
+  it("shows explicit following and paused output states and resumes with f or G", async () => {
+    const dataSource = source([job()]);
+    const initialLines = Array.from({ length: 30 }, (_, index) => ({ stream: "stdout" as const, text: `line ${index + 1}` }));
+    dataSource.setPage("bg-one", {
+      offset: 0,
+      limit: 100,
+      lines: initialLines,
+      totalLines: initialLines.length,
+      hasMore: false,
+      nextOffset: null,
+    });
+    const browser = new BackgroundJobsBrowser(tui() as any, theme as any, dataSource, vi.fn());
+    browser.handleInput("\r");
+    await vi.waitFor(() => expect(browser.render(100).join("\n")).toContain("line 30"));
+    expect(browser.render(100).join("\n")).toContain("FOLLOWING");
+
+    browser.handleInput("k");
+    await vi.waitFor(() => expect(browser.render(100).join("\n")).toContain("PAUSED"));
+    const extendedLines = [...initialLines, { stream: "stdout" as const, text: "line 31" }];
+    dataSource.setPage("bg-one", {
+      offset: 0,
+      limit: 100,
+      lines: extendedLines,
+      totalLines: extendedLines.length,
+      hasMore: false,
+      nextOffset: null,
+    });
+    dataSource.emit();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(browser.render(100).join("\n")).not.toContain("line 31");
+
+    browser.handleInput("f");
+    await vi.waitFor(() => expect(browser.render(100).join("\n")).toContain("line 31"));
+    expect(browser.render(100).join("\n")).toContain("FOLLOWING");
+    browser.handleInput("k");
+    browser.handleInput("G");
+    await vi.waitFor(() => expect(browser.render(100).join("\n")).toContain("FOLLOWING"));
+  });
+
+  it("shows log write and read failures in the output view", async () => {
+    const dataSource = source([job({ logError: "disk full" })]);
+    const readLogsMock = dataSource.readLogs as unknown as { mockRejectedValue(error: unknown): void };
+    readLogsMock.mockRejectedValue(new Error("corrupt index"));
+    const browser = new BackgroundJobsBrowser(tui() as any, theme as any, dataSource, vi.fn());
+    browser.handleInput("\r");
+    await vi.waitFor(() => {
+      const output = browser.render(100).join("\n");
+      expect(output).toContain("Log warning: disk full");
+      expect(output).toContain("Failed to read output: corrupt index");
+    });
   });
 
   it("returns from detail before closing the browser", () => {

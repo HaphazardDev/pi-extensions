@@ -27,6 +27,7 @@ export class BackgroundJobsBrowser {
   private readonly pollTimer: NodeJS.Timeout;
   private reloadGeneration = 0;
   private errorMessage: string | undefined;
+  private logReadError: string | undefined;
   private confirmationMessage: string | undefined;
   private pendingConfirmation: string | undefined;
   private filterQuery = "";
@@ -82,9 +83,14 @@ export class BackgroundJobsBrowser {
       const page = await this.source.readLogs(id, { offset, limit: outputRows });
       if (this.disposed || this.selectedJobId !== id || generation !== this.reloadGeneration) return;
       this.logPage = page;
+      this.logReadError = undefined;
       this.refresh();
-    } catch {
-      // The job may disappear during session shutdown; the next list render handles it.
+    } catch (error) {
+      if (this.disposed || this.selectedJobId !== id || generation !== this.reloadGeneration) return;
+      if (this.source.get(id)) {
+        this.logReadError = `Failed to read output: ${error instanceof Error ? error.message : String(error)}`;
+        this.refresh();
+      }
     }
   }
 
@@ -117,8 +123,10 @@ export class BackgroundJobsBrowser {
   private move(delta: number): void {
     if (this.selectedJobId) {
       const maxOffset = Math.max(0, (this.logPage?.totalLines ?? 0) - this.outputRows());
-      const current = this.outputOffset ?? maxOffset;
-      this.outputOffset = Math.max(0, Math.min(maxOffset, current + delta));
+      if (this.outputOffset !== undefined || delta < 0) {
+        const current = this.outputOffset ?? maxOffset;
+        this.outputOffset = Math.max(0, Math.min(maxOffset, current + delta));
+      }
       void this.reloadLogs();
     } else {
       const jobs = this.jobs();
@@ -133,8 +141,7 @@ export class BackgroundJobsBrowser {
       this.selectedIndex = to === "start" ? 0 : Math.max(0, this.jobs().length - 1);
       this.selectedListJobId = this.jobs()[this.selectedIndex]?.id;
     } else {
-      const totalLines = this.logPage?.totalLines ?? 0;
-      this.outputOffset = to === "start" ? 0 : Math.max(0, totalLines - this.outputRows());
+      this.outputOffset = to === "start" ? 0 : undefined;
       void this.reloadLogs();
     }
     this.refresh();
@@ -252,6 +259,12 @@ export class BackgroundJobsBrowser {
         .finally(() => this.refresh());
       return;
     }
+    if (data === "f" && this.selectedJobId) {
+      this.outputOffset = undefined;
+      void this.reloadLogs();
+      this.refresh();
+      return;
+    }
     if (data === "r") {
       void this.reloadLogs();
       this.refresh();
@@ -291,7 +304,9 @@ export class BackgroundJobsBrowser {
   }
 
   private outputRows(): number {
-    return Math.max(1, this.viewportHeight() - 8);
+    const job = this.selectedJobId ? this.source.get(this.selectedJobId) : undefined;
+    const warningRows = (job?.logError ? 2 : 0) + (this.logReadError ? 2 : 0) + (this.errorMessage ? 2 : 0);
+    return Math.max(1, this.viewportHeight() - 9 - warningRows);
   }
 
   private finishView(lines: string[], shortcuts: string, width: number): string[] {
@@ -376,6 +391,14 @@ export class BackgroundJobsBrowser {
       this.add(lines, this.theme.fg("error", ` ${this.errorMessage}`), width);
       lines.push("");
     }
+    if (job.logError) {
+      this.add(lines, this.theme.fg("warning", ` Log warning: ${job.logError}`), width);
+      lines.push("");
+    }
+    if (this.logReadError) {
+      this.add(lines, this.theme.fg("error", ` ${this.logReadError}`), width);
+      lines.push("");
+    }
 
     if (!page) {
       this.add(lines, this.theme.fg("dim", " Loading output…"), width);
@@ -391,8 +414,9 @@ export class BackgroundJobsBrowser {
 
     lines.push("");
     const totalLines = page?.totalLines ?? 0;
-    this.add(lines, this.theme.fg("dim", ` lines ${totalLines === 0 ? 0 : offset + 1}-${Math.min(totalLines, offset + visible.length)} of ${totalLines}`), width);
-    return this.finishView(lines, " ↑↓/jk scroll • g/G start/end • s stop • r refresh • q/Esc jobs", width);
+    const mode = this.outputOffset === undefined ? "FOLLOWING" : "PAUSED";
+    this.add(lines, this.theme.fg("dim", ` lines ${totalLines === 0 ? 0 : offset + 1}-${Math.min(totalLines, offset + visible.length)} of ${totalLines} • ${mode}`), width);
+    return this.finishView(lines, " ↑↓/jk scroll • f follow • g/G start/end • s stop • r refresh • q/Esc jobs", width);
   }
 }
 
