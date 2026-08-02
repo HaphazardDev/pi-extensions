@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  buildUntrackedDiffArgs,
   getReviewTargetKey,
   parseReviewArgs,
   rankDiscoveredRepos,
@@ -17,6 +18,20 @@ const originalCwd = process.cwd();
 
 afterEach(() => {
   process.chdir(originalCwd);
+});
+
+describe("untracked file diffs", () => {
+  it("treats option-like filenames as path operands", () => {
+    expect(buildUntrackedDiffArgs("--output=leaked.diff")).toEqual([
+      "diff",
+      "--no-index",
+      "--unified=3",
+      "--no-color",
+      "--",
+      "/dev/null",
+      "--output=leaked.diff",
+    ]);
+  });
 });
 
 function baseThread(overrides: Partial<ReviewThread> = {}): ReviewThread {

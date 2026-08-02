@@ -136,6 +136,10 @@ export function getReviewTargetKey(repoPath: string): string {
   return path.resolve(repoPath);
 }
 
+export function buildUntrackedDiffArgs(filePath: string): string[] {
+  return ["diff", "--no-index", "--unified=3", "--no-color", "--", "/dev/null", filePath];
+}
+
 function formatRepoDisplayPath(repoPath: string): string {
   const relative = path.relative(process.cwd(), repoPath) || ".";
   return relative.split(path.sep).join("/");
@@ -1620,7 +1624,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
   };
 
   const buildUntrackedDiff = async (target: ReviewTarget, path: string): Promise<string> => {
-    const result = await execGit(target, ["diff", "--no-index", "--unified=3", "--no-color", "/dev/null", path]);
+    const result = await execGit(target, buildUntrackedDiffArgs(path));
     if (result.code !== 0 && result.code !== 1) {
       throw new Error(result.stderr.trim() || `Failed to diff untracked file ${path}.`);
     }
