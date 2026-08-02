@@ -103,6 +103,7 @@ export class JobManager {
       signal: null,
       elapsedMs: 0,
       timeoutMs: options.timeoutMs ?? null,
+      logError: null,
     };
     let resolveCompletion!: (job: JobInfo) => void;
     const completion = new Promise<JobInfo>((resolvePromise) => {
@@ -125,13 +126,15 @@ export class JobManager {
     this.jobs.set(id, runtime);
 
     child.stdout?.on("data", (chunk: Buffer) => {
-      void this.logStore.append(logPath, "stdout", chunk).catch(() => undefined);
+      void this.logStore.append(logPath, "stdout", chunk).catch((error) => this.recordLogError(runtime, error));
     });
     child.stderr?.on("data", (chunk: Buffer) => {
-      void this.logStore.append(logPath, "stderr", chunk).catch(() => undefined);
+      void this.logStore.append(logPath, "stderr", chunk).catch((error) => this.recordLogError(runtime, error));
     });
     child.once("error", (error) => {
-      void this.logStore.append(logPath, "stderr", `${error.message}\n`).catch(() => undefined);
+      void this.logStore.append(logPath, "stderr", `${error.message}\n`).catch((writeError) => {
+        this.recordLogError(runtime, writeError);
+      });
       void this.finalize(runtime, "failed", null, null);
     });
     child.once("exit", () => {
@@ -174,6 +177,23 @@ export class JobManager {
     if (runtime.job.status !== "running") return false;
     await this.requestStop(runtime, "stopped");
     return true;
+  }
+
+  async remove(id: string): Promise<boolean> {
+    const runtime = this.requireJob(id);
+    if (runtime.job.status === "running") return false;
+    await this.logStore.remove(runtime.job.logPath);
+    this.jobs.delete(id);
+    this.emitChange(this.snapshot(runtime));
+    return true;
+  }
+
+  async clearCompleted(): Promise<number> {
+    const completedIds = [...this.jobs.values()]
+      .filter((runtime) => runtime.job.status !== "running")
+      .map((runtime) => runtime.job.id);
+    for (const id of completedIds) await this.remove(id);
+    return completedIds.length;
   }
 
   async stopAll(): Promise<void> {
@@ -284,7 +304,7 @@ export class JobManager {
       runtime.timeoutTimer = null;
     }
     if (!this.groupExists(runtime)) this.finishEscalation(runtime);
-    await this.logStore.closeLog(runtime.job.logPath).catch(() => undefined);
+    await this.logStore.closeLog(runtime.job.logPath).catch((error) => this.recordLogError(runtime, error));
     this.releaseChild(runtime);
     const endedMs = Date.now();
     runtime.job.status = status;
@@ -315,6 +335,12 @@ export class JobManager {
 
   private emitChange(job: JobInfo): void {
     this.safeCallback(this.onChange, { ...job });
+  }
+
+  private recordLogError(runtime: JobRuntime, error: unknown): void {
+    if (runtime.job.logError) return;
+    runtime.job.logError = error instanceof Error ? error.message : String(error);
+    this.emitChange(this.snapshot(runtime));
   }
 
   private safeCallback(callback: JobLifecycleCallback | undefined, job: JobInfo): void {

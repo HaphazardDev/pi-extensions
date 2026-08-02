@@ -187,4 +187,26 @@ describe("LogStore", () => {
     expect(await exists(directory)).toBe(false);
     await store.cleanup();
   });
+
+  it("removes one closed log without disturbing other jobs", async () => {
+    const store = new LogStore();
+    try {
+      const removed = await store.createLog("bg-remove");
+      const retained = await store.createLog("bg-retain");
+      await store.append(removed, "stdout", "remove me\n");
+      await store.append(retained, "stdout", "keep me\n");
+      await store.closeLog(removed);
+      await store.closeLog(retained);
+
+      await store.remove(removed);
+
+      expect(await exists(removed)).toBe(false);
+      expect(await exists(`${removed}.idx`)).toBe(false);
+      expect(await exists(`${removed}.partial.json`)).toBe(false);
+      await expect(store.read(removed)).rejects.toThrow("unknown log path");
+      expect((await store.read(retained)).lines).toEqual([{ stream: "stdout", text: "keep me" }]);
+    } finally {
+      await store.cleanup();
+    }
+  });
 });

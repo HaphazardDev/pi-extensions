@@ -37,6 +37,7 @@ export interface JobInfo {
   signal: NodeJS.Signals | null;
   elapsedMs: number;
   timeoutMs: number | null;
+  logError?: string | null;
 }
 
 export type JobLifecycleCallback = (job: JobInfo) => void;

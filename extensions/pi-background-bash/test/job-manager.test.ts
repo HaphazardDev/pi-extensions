@@ -223,6 +223,57 @@ describe("JobManager", () => {
     }
   });
 
+  it("removes completed jobs and refuses to remove running jobs", async () => {
+    const manager = new JobManager();
+    try {
+      const completed = await manager.start({ command: nodeCommand("console.log('done')") });
+      await manager.waitForCompletion(completed.id);
+      const running = await manager.start({ command: nodeCommand("setInterval(() => {}, 1000)") });
+
+      expect(await manager.remove(running.id)).toBe(false);
+      expect(await manager.remove(completed.id)).toBe(true);
+      expect(manager.get(completed.id)).toBeUndefined();
+      expect(manager.get(running.id)?.status).toBe("running");
+    } finally {
+      await manager.cleanup();
+    }
+  });
+
+  it("clears every completed job while retaining running jobs", async () => {
+    const manager = new JobManager();
+    try {
+      const first = await manager.start({ command: nodeCommand("process.exit(0)") });
+      const second = await manager.start({ command: nodeCommand("process.exit(1)") });
+      await Promise.all([manager.waitForCompletion(first.id), manager.waitForCompletion(second.id)]);
+      const running = await manager.start({ command: nodeCommand("setInterval(() => {}, 1000)") });
+
+      expect(await manager.clearCompleted()).toBe(2);
+      expect(manager.list()).toEqual([expect.objectContaining({ id: running.id, status: "running" })]);
+    } finally {
+      await manager.cleanup();
+    }
+  });
+
+  it("surfaces asynchronous log write failures on the job", async () => {
+    const logStore = {
+      createLog: async () => "/tmp/failing-log.jsonl",
+      append: async () => { throw new Error("disk full"); },
+      closeLog: async () => undefined,
+      read: async () => ({ offset: 0, limit: 100, lines: [], totalLines: 0, hasMore: false, nextOffset: null }),
+      remove: async () => undefined,
+      cleanup: async () => undefined,
+    };
+    const manager = new JobManager({ logStore: logStore as never });
+    try {
+      const job = await manager.start({ command: nodeCommand("console.log('lost')") });
+      await manager.waitForCompletion(job.id);
+      await waitUntil(() => typeof manager.get(job.id)?.logError === "string");
+      expect(manager.get(job.id)?.logError).toContain("disk full");
+    } finally {
+      await manager.cleanup();
+    }
+  });
+
   it("reports spawn failures and invokes lifecycle and completion callbacks", async () => {
     const statuses: JobStatus[] = [];
     const completed: JobInfo[] = [];
