@@ -2,7 +2,31 @@
 
 Run explicit background shell jobs from Pi, inspect them through agent tools, and browse their output in Pi's TUI.
 
-> This package is currently under local development and has not been published.
+## Installation
+
+Install from npm:
+
+```bash
+pi install npm:@haphazarddev/pi-background-bash
+```
+
+Restart Pi after installing or use `/reload` if the current Pi session supports extension reloads.
+
+### Local development
+
+From this repository:
+
+```bash
+npm install
+npm run build
+pi install ./extensions/pi-background-bash
+```
+
+To remove the package:
+
+```bash
+pi remove @haphazarddev/pi-background-bash
+```
 
 ## Design
 
@@ -18,24 +42,6 @@ Each job is owned by the current Pi process and records:
 - disk-backed stdout/stderr logs
 
 Running jobs receive `SIGTERM` during Pi shutdown and are force-killed after a short grace period if necessary. On POSIX systems, signals target the complete process group so child processes do not remain behind.
-
-## Local installation
-
-From this repository:
-
-```bash
-npm install
-npm run build
-pi install ./extensions/pi-background-bash
-```
-
-Restart Pi after installing or use `/reload` if the current Pi session supports extension reloads.
-
-To remove the local package:
-
-```bash
-pi remove @haphazarddev/pi-background-bash
-```
 
 ## Agent tools
 

@@ -1,10 +1,12 @@
 {
   "name": "@haphazarddev/pi-background-bash",
   "version": "0.1.0",
-  "private": true,
   "description": "Run and manage shell commands in the background from pi.",
   "type": "module",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/HaphazardDev/pi-extensions.git",
