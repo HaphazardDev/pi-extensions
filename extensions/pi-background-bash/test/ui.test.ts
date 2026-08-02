@@ -35,6 +35,24 @@ function source(jobs = [job(), job({ id: "bg-two", command: "npm test", status: 
       return { ...page, offset: options?.offset ?? page.offset, limit: options?.limit ?? page.limit };
     }),
     stop: vi.fn(async (_id: string) => true),
+    remove: vi.fn(async (id: string) => {
+      const index = jobs.findIndex((candidate) => candidate.id === id);
+      if (index < 0 || jobs[index]?.status === "running") return false;
+      jobs.splice(index, 1);
+      listener?.();
+      return true;
+    }),
+    clearCompleted: vi.fn(async () => {
+      let removed = 0;
+      for (let index = jobs.length - 1; index >= 0; index--) {
+        if (jobs[index]?.status !== "running") {
+          jobs.splice(index, 1);
+          removed += 1;
+        }
+      }
+      listener?.();
+      return removed;
+    }),
     subscribe: vi.fn((callback: () => void) => {
       listener = callback;
       return () => {
@@ -63,13 +81,69 @@ describe("BackgroundJobsBrowser", () => {
     expect(lines).toHaveLength(24);
     expect(lines.every((line) => line.length === 100)).toBe(true);
     expect(lines[0]).toContain("BACKGROUND PROCESSES");
-    expect(lines.at(-2)).toContain("↑↓/jk navigate");
+    expect(lines.at(-2)).toContain("↑↓/jk move");
+    expect(lines.at(-2)).toContain("/ filter");
+    expect(lines.at(-2)).toContain("d delete");
+    expect(lines.at(-2)).toContain("c clear");
     expect(lines.at(-2)).not.toContain("r refresh");
     expect(output).toContain("Jobs (2)");
     expect(output).toContain("> bg-one");
     expect(output).toContain("running");
     expect(output).toContain("bg-two");
     expect(output).toContain("exited 0");
+  });
+
+  it("orders running jobs first, newest first, and initially selects the newest running job", () => {
+    const dataSource = source([
+      job({ id: "bg-old-complete", status: "exited", startedAt: "2026-07-27T00:00:00.000Z" }),
+      job({ id: "bg-old-running", startedAt: "2026-07-27T00:01:00.000Z" }),
+      job({ id: "bg-new-running", label: "unit tests", command: "npm test", startedAt: "2026-07-27T00:02:00.000Z" }),
+      job({ id: "bg-new-complete", status: "failed", startedAt: "2026-07-27T00:03:00.000Z" }),
+    ]);
+    const browser = new BackgroundJobsBrowser(tui() as any, theme as any, dataSource, vi.fn());
+    const output = browser.render(100).join("\n");
+
+    expect(output.indexOf("bg-new-running")).toBeLessThan(output.indexOf("bg-old-running"));
+    expect(output.indexOf("bg-old-running")).toBeLessThan(output.indexOf("bg-new-complete"));
+    expect(output).toContain("> bg-new-running");
+    expect(output).toContain("unit tests");
+  });
+
+  it("requires a second keypress before deleting one completed job", async () => {
+    const dataSource = source([
+      job({ id: "bg-running" }),
+      job({ id: "bg-complete", status: "exited", exitCode: 0 }),
+    ]);
+    const browser = new BackgroundJobsBrowser(tui() as any, theme as any, dataSource, vi.fn());
+    browser.handleInput("j");
+
+    browser.handleInput("d");
+    expect(dataSource.remove).not.toHaveBeenCalled();
+    expect(browser.render(100).join("\n")).toContain("Press d again to remove bg-complete");
+
+    browser.handleInput("d");
+    await vi.waitFor(() => expect(dataSource.remove).toHaveBeenCalledWith("bg-complete"));
+    expect(browser.render(100).join("\n")).not.toContain("bg-complete");
+  });
+
+  it("requires confirmation before clearing all completed jobs", async () => {
+    const dataSource = source([
+      job({ id: "bg-running" }),
+      job({ id: "bg-passed", status: "exited", exitCode: 0 }),
+      job({ id: "bg-failed", status: "failed", exitCode: 1 }),
+    ]);
+    const browser = new BackgroundJobsBrowser(tui() as any, theme as any, dataSource, vi.fn());
+
+    browser.handleInput("c");
+    expect(dataSource.clearCompleted).not.toHaveBeenCalled();
+    expect(browser.render(100).join("\n")).toContain("Press c again to clear 2 completed jobs");
+
+    browser.handleInput("c");
+    await vi.waitFor(() => expect(dataSource.clearCompleted).toHaveBeenCalledOnce());
+    const output = browser.render(100).join("\n");
+    expect(output).toContain("bg-running");
+    expect(output).not.toContain("bg-passed");
+    expect(output).not.toContain("bg-failed");
   });
 
   it("uses raw arrow and enter input to open the selected job output", async () => {
@@ -109,6 +183,8 @@ describe("BackgroundJobsBrowser", () => {
         };
       }),
       stop: vi.fn(async () => true),
+      remove: vi.fn(async () => false),
+      clearCompleted: vi.fn(async () => 0),
       subscribe: () => () => undefined,
     };
     const browser = new BackgroundJobsBrowser(tui() as any, theme as any, dataSource, vi.fn());

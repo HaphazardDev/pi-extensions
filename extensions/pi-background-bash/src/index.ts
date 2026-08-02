@@ -111,6 +111,8 @@ export function createBackgroundBashExtension(dependencies: BackgroundBashExtens
       get: (id) => manager.get(id),
       readLogs: (id, options) => manager.readLog(id, options),
       stop: (id) => manager.stop(id),
+      remove: (id) => manager.remove(id),
+      clearCompleted: () => manager.clearCompleted(),
       subscribe: (listener) => {
         listeners.add(listener);
         return () => listeners.delete(listener);

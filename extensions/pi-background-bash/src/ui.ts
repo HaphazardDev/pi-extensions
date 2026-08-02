@@ -10,11 +10,14 @@ export interface BackgroundJobsDataSource {
   get(id: string): JobInfo | undefined;
   readLogs(id: string, options?: { offset?: number; limit?: number }): Promise<LogPage>;
   stop(id: string): Promise<unknown>;
+  remove(id: string): Promise<boolean>;
+  clearCompleted(): Promise<number>;
   subscribe(listener: () => void): () => void;
 }
 
 export class BackgroundJobsBrowser {
   private selectedIndex = 0;
+  private selectedListJobId: string | undefined;
   private selectedJobId: string | undefined;
   private outputOffset: number | undefined;
   private logPage: LogPage | undefined;
@@ -24,6 +27,8 @@ export class BackgroundJobsBrowser {
   private readonly pollTimer: NodeJS.Timeout;
   private reloadGeneration = 0;
   private errorMessage: string | undefined;
+  private confirmationMessage: string | undefined;
+  private pendingConfirmation: string | undefined;
   private disposed = false;
 
   constructor(
@@ -81,14 +86,24 @@ export class BackgroundJobsBrowser {
   }
 
   private jobs(): JobInfo[] {
-    return this.source.list();
+    return [...this.source.list()].sort((left, right) => {
+      const runningDifference = Number(right.status === "running") - Number(left.status === "running");
+      if (runningDifference !== 0) return runningDifference;
+      return Date.parse(right.startedAt) - Date.parse(left.startedAt);
+    });
   }
 
   private selectedJob(): JobInfo | undefined {
     const jobs = this.jobs();
     if (jobs.length === 0) return undefined;
+    if (this.selectedListJobId) {
+      const anchoredIndex = jobs.findIndex((job) => job.id === this.selectedListJobId);
+      if (anchoredIndex >= 0) this.selectedIndex = anchoredIndex;
+    }
     this.selectedIndex = Math.max(0, Math.min(this.selectedIndex, jobs.length - 1));
-    return jobs[this.selectedIndex];
+    const selected = jobs[this.selectedIndex];
+    this.selectedListJobId = selected?.id;
+    return selected;
   }
 
   private move(delta: number): void {
@@ -100,6 +115,7 @@ export class BackgroundJobsBrowser {
     } else {
       const jobs = this.jobs();
       this.selectedIndex = Math.max(0, Math.min(Math.max(0, jobs.length - 1), this.selectedIndex + delta));
+      this.selectedListJobId = jobs[this.selectedIndex]?.id;
     }
     this.refresh();
   }
@@ -107,6 +123,7 @@ export class BackgroundJobsBrowser {
   private jump(to: "start" | "end"): void {
     if (!this.selectedJobId) {
       this.selectedIndex = to === "start" ? 0 : Math.max(0, this.jobs().length - 1);
+      this.selectedListJobId = this.jobs()[this.selectedIndex]?.id;
     } else {
       const totalLines = this.logPage?.totalLines ?? 0;
       this.outputOffset = to === "start" ? 0 : Math.max(0, totalLines - this.outputRows());
@@ -151,6 +168,43 @@ export class BackgroundJobsBrowser {
           })
           .finally(() => this.refresh());
       }
+      return;
+    }
+    if (data === "d" && !this.selectedJobId) {
+      const job = this.selectedJob();
+      if (!job || job.status === "running") return;
+      const action = `remove:${job.id}`;
+      if (this.pendingConfirmation !== action) {
+        this.pendingConfirmation = action;
+        this.confirmationMessage = `Press d again to remove ${job.id}`;
+        this.refresh();
+        return;
+      }
+      this.pendingConfirmation = undefined;
+      this.confirmationMessage = undefined;
+      void this.source.remove(job.id)
+        .catch((error: unknown) => {
+          this.errorMessage = `Failed to remove ${job.id}: ${error instanceof Error ? error.message : String(error)}`;
+        })
+        .finally(() => this.refresh());
+      return;
+    }
+    if (data === "c" && !this.selectedJobId) {
+      const completedCount = this.jobs().filter((job) => job.status !== "running").length;
+      if (completedCount === 0) return;
+      if (this.pendingConfirmation !== "clear-completed") {
+        this.pendingConfirmation = "clear-completed";
+        this.confirmationMessage = `Press c again to clear ${completedCount} completed ${completedCount === 1 ? "job" : "jobs"}`;
+        this.refresh();
+        return;
+      }
+      this.pendingConfirmation = undefined;
+      this.confirmationMessage = undefined;
+      void this.source.clearCompleted()
+        .catch((error: unknown) => {
+          this.errorMessage = `Failed to clear completed jobs: ${error instanceof Error ? error.message : String(error)}`;
+        })
+        .finally(() => this.refresh());
       return;
     }
     if (data === "r") {
@@ -210,6 +264,11 @@ export class BackgroundJobsBrowser {
       lines.push("");
     }
 
+    if (this.confirmationMessage) {
+      this.add(lines, this.theme.fg("warning", ` ${this.confirmationMessage}`), width);
+      lines.push("");
+    }
+
     if (jobs.length === 0) {
       this.add(lines, this.theme.fg("dim", " No background jobs in this Pi session."), width);
     } else {
@@ -223,12 +282,13 @@ export class BackgroundJobsBrowser {
         const prefix = selected ? ">" : " ";
         const state = formatJobStatus(job);
         const commandWidth = Math.max(8, width - job.id.length - state.length - 18);
-        const row = `${prefix} ${job.id}  ${state.padEnd(14)}  ${formatDuration(job.elapsedMs).padStart(7)}  ${truncateCommand(job.command, commandWidth)}`;
+        const displayName = job.label ?? job.command;
+        const row = `${prefix} ${job.id}  ${state.padEnd(14)}  ${formatDuration(job.elapsedMs).padStart(7)}  ${truncateCommand(displayName, commandWidth)}`;
         this.add(lines, selected ? this.theme.fg("accent", row) : this.theme.fg("text", row), width);
       }
     }
 
-    return this.finishView(lines, " ↑↓/jk navigate • Enter output • s stop • q/Esc close", width);
+    return this.finishView(lines, " ↑↓/jk move • Enter output • / filter • s stop • d delete • c clear • q/Esc close", width);
   }
 
   private renderDetail(width: number): string[] {
