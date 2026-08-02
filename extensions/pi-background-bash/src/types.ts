@@ -18,12 +18,14 @@ export type JobStatus = "running" | "exited" | "failed" | "timed_out" | "stopped
 
 export interface StartJobOptions {
   command: string;
+  label?: string;
   cwd?: string;
   timeoutMs?: number;
 }
 
 export interface JobInfo {
   id: string;
+  label?: string;
   command: string;
   cwd: string;
   status: JobStatus;

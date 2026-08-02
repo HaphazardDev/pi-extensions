@@ -54,6 +54,20 @@ describe("JobManager", () => {
     }
   });
 
+  it("preserves a trimmed optional job label", async () => {
+    const manager = new JobManager();
+    try {
+      const job = await manager.start({
+        command: nodeCommand("setTimeout(() => {}, 10)"),
+        label: " unit tests ",
+      });
+      expect(job.label).toBe("unit tests");
+      expect((await manager.waitForCompletion(job.id)).label).toBe("unit tests");
+    } finally {
+      await manager.cleanup();
+    }
+  });
+
   it("captures interleaved stdout and stderr and reports a real exit code", async () => {
     const manager = new JobManager();
     try {

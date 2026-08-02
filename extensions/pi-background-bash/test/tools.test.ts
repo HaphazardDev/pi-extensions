@@ -75,13 +75,18 @@ describe("background Bash tools", () => {
 
     const result = await tool(pi, "background_bash_start").execute(
       "call-1",
-      { command: "npm test", timeoutSeconds: 12, notifyAgent: false },
+      { command: "npm test", label: " unit tests ", timeoutSeconds: 12, notifyAgent: false },
       undefined,
       undefined,
       ctx,
     );
 
-    expect(manager.start).toHaveBeenCalledWith({ command: "npm test", cwd: "/context", timeoutMs: 12_000 });
+    expect(manager.start).toHaveBeenCalledWith({
+      command: "npm test",
+      cwd: "/context",
+      label: "unit tests",
+      timeoutMs: 12_000,
+    });
     expect(onJobStarted).toHaveBeenCalledWith(running, false);
     expect(result.content[0].text).toContain("bg-abc123");
     expect(result.details).toEqual(running);

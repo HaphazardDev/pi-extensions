@@ -63,6 +63,8 @@ export class JobManager {
     if (typeof command !== "string" || command.trim().length === 0) {
       throw new Error("command must be a non-empty string");
     }
+    const label = options.label?.trim() || undefined;
+    if (label && label.length > 80) throw new Error("label must not exceed 80 characters");
     if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) {
       throw new Error("timeoutMs must be a positive number");
     }
@@ -89,6 +91,7 @@ export class JobManager {
 
     const job: JobInfo = {
       id,
+      ...(label ? { label } : {}),
       command,
       cwd,
       status: "running",

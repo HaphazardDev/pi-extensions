@@ -43,6 +43,7 @@ export function registerBackgroundBashTools(pi: ExtensionAPI, options: RegisterB
     ],
     parameters: Type.Object({
       command: Type.String({ minLength: 1, description: "Shell command to run" }),
+      label: Type.Optional(Type.String({ maxLength: 80, description: "Optional human-readable job label" })),
       cwd: Type.Optional(Type.String({ minLength: 1, description: "Working directory; defaults to Pi's current cwd" })),
       timeoutSeconds: Type.Optional(Type.Number({ exclusiveMinimum: 0, description: "Stop the job after this many seconds" })),
       notifyAgent: Type.Optional(Type.Boolean({ description: "Wake the agent with a completion result; defaults to true" })),
@@ -53,6 +54,7 @@ export function registerBackgroundBashTools(pi: ExtensionAPI, options: RegisterB
       const manager = options.getManager();
       const job = await manager.start({
         command: params.command,
+        label: params.label?.trim() || undefined,
         cwd: params.cwd?.trim() || ctx.cwd,
         timeoutMs: params.timeoutSeconds === undefined ? undefined : params.timeoutSeconds * 1_000,
       });
