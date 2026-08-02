@@ -9,8 +9,7 @@ pi install npm:@haphazarddev/pi-vim-quit
 pi install npm:@haphazarddev/pi-ask-user-question
 pi install npm:@haphazarddev/pi-copy-code-block
 pi install npm:@haphazarddev/pi-interactive-code-review
-# Local testing only until published:
-pi install ./extensions/pi-background-bash
+pi install npm:@haphazarddev/pi-background-bash
 ```
 
 ## Packages
@@ -71,14 +70,14 @@ pi install npm:@haphazarddev/pi-interactive-code-review
 Package docs:
 - [`extensions/pi-interactive-code-review/README.md`](./extensions/pi-interactive-code-review/README.md)
 
-### `@haphazarddev/pi-background-bash` (local testing)
+### `@haphazarddev/pi-background-bash`
 
 Run explicit background shell jobs, track their lifecycle, inspect paginated logs, and browse jobs and output in Pi's TUI with `/ps`.
 
-Install from this checkout while it is unpublished:
+Install:
 
 ```bash
-pi install ./extensions/pi-background-bash
+pi install npm:@haphazarddev/pi-background-bash
 ```
 
 Package docs:
@@ -115,7 +114,9 @@ This repo uses Changesets for automated npm releases.
 
 #### Initial publish
 
-For the very first release of a package, keep the package at its existing version (currently `0.1.0`) and publish it without a changeset. On `main`, the workflow will attempt to publish any unpublished packages at their current version.
+For the very first release of a package, remove its `private` flag, keep the package at its existing version (currently `0.1.0`), and publish it without a changeset. On `main`, the workflow will attempt to publish any unpublished packages at their current version.
+
+A new npm package cannot use trusted publishing until it exists in the registry. Bootstrap that first workflow publication with a short-lived granular npm token stored as the `NPM_TOKEN` repository secret. Limit it to the `@haphazarddev` scope with read/write package permission and enable bypass-2FA for workflow publication. After the package is published, configure its npm trusted publisher for `HaphazardDev/pi-extensions` and `.github/workflows/release.yml`, then revoke the token, delete the secret, and remove the temporary workflow fallback.
 
 #### Ongoing releases
 
@@ -128,7 +129,7 @@ For the very first release of a package, keep the package at its existing versio
 
 Prefer npm trusted publishing with GitHub Actions OIDC. This workflow already includes `id-token: write` for that setup.
 
-If you are not using trusted publishing yet, you can instead provide an `NPM_TOKEN` GitHub Actions secret.
+If you are not using trusted publishing yet, provide an `NPM_TOKEN` GitHub Actions secret; the release workflow forwards it to Changesets as a temporary fallback.
 
 To ensure CI runs on the auto-generated `changeset-release/*` PRs, also configure a `RELEASE_GITHUB_TOKEN` secret (PAT or GitHub App installation token) with repository `Contents: Read and write` and `Pull requests: Read and write`. The release workflow falls back to `GITHUB_TOKEN`, but that fallback will not trigger downstream workflows for release PR updates.
 
