@@ -25,6 +25,8 @@ export function createMockPi(): any {
     registerShortcut: vi.fn((shortcut: string, config: any) => {
       shortcuts.set(shortcut, config);
     }),
+    sendMessage: vi.fn(),
+    appendEntry: vi.fn(),
   };
 }
 
@@ -36,6 +38,7 @@ export function createMockUi(overrides: Record<string, any> = {}): any {
     editor: vi.fn(),
     custom: vi.fn(),
     setStatus: vi.fn(),
+    setWidget: vi.fn(),
     theme: {
       fg: vi.fn((_color: string, text: string) => text),
     },

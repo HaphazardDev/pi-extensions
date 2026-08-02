@@ -9,6 +9,8 @@ pi install npm:@haphazarddev/pi-vim-quit
 pi install npm:@haphazarddev/pi-ask-user-question
 pi install npm:@haphazarddev/pi-copy-code-block
 pi install npm:@haphazarddev/pi-interactive-code-review
+# Local testing only until published:
+pi install ./extensions/pi-background-bash
 ```
 
 ## Packages
@@ -69,6 +71,19 @@ pi install npm:@haphazarddev/pi-interactive-code-review
 Package docs:
 - [`extensions/pi-interactive-code-review/README.md`](./extensions/pi-interactive-code-review/README.md)
 
+### `@haphazarddev/pi-background-bash` (local testing)
+
+Run explicit background shell jobs, track their lifecycle, inspect paginated logs, and browse jobs and output in Pi's TUI with `/ps`.
+
+Install from this checkout while it is unpublished:
+
+```bash
+pi install ./extensions/pi-background-bash
+```
+
+Package docs:
+- [`extensions/pi-background-bash/README.md`](./extensions/pi-background-bash/README.md)
+
 ## Install from a local checkout
 
 If you want to test directly from this repository:
@@ -78,6 +93,7 @@ pi install ./extensions/pi-vim-quit
 pi install ./extensions/pi-ask-user-question
 pi install ./extensions/pi-copy-code-block
 pi install ./extensions/pi-interactive-code-review
+pi install ./extensions/pi-background-bash
 ```
 
 ## For maintainers

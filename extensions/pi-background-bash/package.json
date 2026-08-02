@@ -1,0 +1,47 @@
+{
+  "name": "@haphazarddev/pi-background-bash",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Run and manage shell commands in the background from pi.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HaphazardDev/pi-extensions.git",
+    "directory": "extensions/pi-background-bash"
+  },
+  "homepage": "https://github.com/HaphazardDev/pi-extensions/tree/main/extensions/pi-background-bash#readme",
+  "bugs": {
+    "url": "https://github.com/HaphazardDev/pi-extensions/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "background",
+    "bash",
+    "shell"
+  ],
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "@sinclair/typebox": "*"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ]
+}
