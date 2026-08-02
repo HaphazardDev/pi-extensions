@@ -116,7 +116,7 @@ This repo uses Changesets for automated npm releases.
 
 For the very first release of a package, remove its `private` flag, keep the package at its existing version (currently `0.1.0`), and publish it without a changeset. On `main`, the workflow will attempt to publish any unpublished packages at their current version.
 
-A new npm package cannot use trusted publishing until it exists in the registry. Bootstrap that first workflow publication with a short-lived granular npm token stored as the `NPM_TOKEN` repository secret. Limit it to the `@haphazarddev` scope with read/write package permission and enable bypass-2FA for workflow publication. After the package is published, configure its npm trusted publisher for `HaphazardDev/pi-extensions` and `.github/workflows/release.yml`, then revoke the token, delete the secret, and remove the temporary workflow fallback.
+A new npm package cannot use trusted publishing until it exists in the registry. If an initial publication needs a bootstrap credential, use a short-lived granular npm token limited to the intended scope with read/write package permission and bypass-2FA enabled for workflow publication. Temporarily forward it to the Changesets step as `NPM_TOKEN`. After the package is published, configure its npm trusted publisher for `HaphazardDev/pi-extensions` and `.github/workflows/release.yml`, then revoke the token, delete the secret, and remove the temporary workflow fallback.
 
 #### Ongoing releases
 
@@ -129,7 +129,7 @@ A new npm package cannot use trusted publishing until it exists in the registry.
 
 Prefer npm trusted publishing with GitHub Actions OIDC. This workflow already includes `id-token: write` for that setup.
 
-If you are not using trusted publishing yet, provide an `NPM_TOKEN` GitHub Actions secret; the release workflow forwards it to Changesets as a temporary fallback.
+If you are not using trusted publishing yet, a temporary `NPM_TOKEN` fallback can bootstrap a package's first publication. Do not retain that workflow wiring after trusted publishing is configured.
 
 To ensure CI runs on the auto-generated `changeset-release/*` PRs, also configure a `RELEASE_GITHUB_TOKEN` secret (PAT or GitHub App installation token) with repository `Contents: Read and write` and `Pull requests: Read and write`. The release workflow falls back to `GITHUB_TOKEN`, but that fallback will not trigger downstream workflows for release PR updates.
 
