@@ -49,9 +49,6 @@ jobs:
           # Use a PAT or GitHub App installation token so release PR pushes trigger
           # normal pull_request/push workflows on changeset-release/* branches.
           GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
-          # Bootstrap brand-new packages before npm trusted publishing can be configured.
-          # Remove this fallback after the package has an npm trusted publisher.
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Published packages summary
         if: steps.changesets.outputs.published == 'true'
