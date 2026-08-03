@@ -4,9 +4,11 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   buildUntrackedDiffArgs,
+  formatRepoDisplayPath,
   getReviewTargetKey,
   parseReviewArgs,
   rankDiscoveredRepos,
+  resolveGitOutputPath,
   walkChildRepoCandidates,
   type DiscoveredRepo,
 } from "../src/index.js";
@@ -85,6 +87,24 @@ describe("review target argument parsing", () => {
     process.chdir(tmp);
 
     expect(parseReviewArgs("child")).toEqual({ repoPath: "child" });
+  });
+
+  it("uses Pi's logical cwd for relative repo arguments and display paths", () => {
+    const processRoot = fs.mkdtempSync(path.join(os.tmpdir(), "review-process-cwd-"));
+    const logicalCwd = fs.mkdtempSync(path.join(os.tmpdir(), "review-logical-cwd-"));
+    const childRepo = path.join(logicalCwd, "child");
+    fs.mkdirSync(path.join(childRepo, ".git"), { recursive: true });
+    process.chdir(processRoot);
+
+    expect(parseReviewArgs("child", logicalCwd)).toEqual({ repoPath: "child" });
+    expect(formatRepoDisplayPath(childRepo, logicalCwd)).toBe("child");
+  });
+
+  it("resolves relative Git discovery output from the Git command cwd", () => {
+    const gitCwd = path.join(path.sep, "tmp", "logical-cwd", "repo");
+
+    expect(resolveGitOutputPath("..", gitCwd)).toBe(path.join(path.sep, "tmp", "logical-cwd"));
+    expect(resolveGitOutputPath(path.join(path.sep, "tmp", "other-repo"), gitCwd)).toBe(path.join(path.sep, "tmp", "other-repo"));
   });
 
   it("parses discovery convenience flags", () => {
