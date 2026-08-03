@@ -1,5 +1,12 @@
 # @haphazarddev/pi-interactive-code-review
 
+## 0.3.3
+
+### Patch Changes
+
+- 8b339e9: Resolve review targets and repository discovery from Pi's logical working directory instead of the host process directory.
+- f094140: Treat option-like untracked filenames as Git path operands when building review diffs.
+
 ## 0.3.2
 
 ### Patch Changes
