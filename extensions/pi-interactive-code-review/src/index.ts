@@ -140,12 +140,16 @@ export function buildUntrackedDiffArgs(filePath: string): string[] {
   return ["diff", "--no-index", "--unified=3", "--no-color", "--", "/dev/null", filePath];
 }
 
-function formatRepoDisplayPath(repoPath: string): string {
-  const relative = path.relative(process.cwd(), repoPath) || ".";
+export function formatRepoDisplayPath(repoPath: string, cwd = process.cwd()): string {
+  const relative = path.relative(cwd, repoPath) || ".";
   return relative.split(path.sep).join("/");
 }
 
-export function parseReviewArgs(input: string): ParsedReviewArgs {
+export function resolveGitOutputPath(outputPath: string, commandCwd: string): string {
+  return path.resolve(commandCwd, outputPath);
+}
+
+export function parseReviewArgs(input: string, cwd = process.cwd()): ParsedReviewArgs {
   const tokens = shellSplitArgs(input.trim());
   const parsed: ParsedReviewArgs = {};
   const positional: string[] = [];
@@ -203,7 +207,7 @@ export function parseReviewArgs(input: string): ParsedReviewArgs {
   if (positional.length > 1) throw new Error("Too many positional arguments. Use --repo <path> and --base <ref> for clarity.");
   if (positional.length === 1) {
     const value = positional[0]!;
-    const absolute = path.resolve(process.cwd(), value);
+    const absolute = path.resolve(cwd, value);
     if (!parsed.repoPath && looksLikeGitRepoDirectory(absolute)) parsed.repoPath = value;
     else if (!parsed.baseRef) parsed.baseRef = value;
     else throw new Error(`Unexpected positional argument ${value}.`);
@@ -1631,8 +1635,8 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
     return result.stdout;
   };
 
-  const summarizeDiscoveredRepo = async (repoPath: string, kind: DiscoveredRepo["kind"]): Promise<DiscoveredRepo> => {
-    const target: ReviewTarget = { repoPath, displayPath: formatRepoDisplayPath(repoPath) };
+  const summarizeDiscoveredRepo = async (repoPath: string, kind: DiscoveredRepo["kind"], cwd: string): Promise<DiscoveredRepo> => {
+    const target: ReviewTarget = { repoPath, displayPath: formatRepoDisplayPath(repoPath, cwd) };
     const base: DiscoveredRepo = {
       repoPath,
       displayPath: target.displayPath,
@@ -1708,37 +1712,36 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
     });
   };
 
-  const discoverReviewRepos = async (options: Partial<RepoDiscoveryOptions> = {}): Promise<DiscoveredRepo[]> => {
+  const discoverReviewRepos = async (cwd: string, options: Partial<RepoDiscoveryOptions> = {}): Promise<DiscoveredRepo[]> => {
     const discoveryOptions: RepoDiscoveryOptions = {
       maxDepth: options.maxDepth ?? DEFAULT_REPO_SCAN_DEPTH,
       maxRepos: options.maxRepos ?? DEFAULT_REPO_SCAN_LIMIT,
     };
-    const cwd = process.cwd();
     const cacheKey = `${cwd}:${discoveryOptions.maxDepth}:${discoveryOptions.maxRepos}`;
     if (discoveryCache?.key === cacheKey) return discoveryCache.repos;
 
     const repos = new Map<string, DiscoveredRepo["kind"]>();
 
-    const currentTarget = await resolveReviewTarget(".").catch(() => undefined);
+    const currentTarget = await resolveReviewTarget(".", cwd).catch(() => undefined);
     if (currentTarget) repos.set(currentTarget.repoPath, "current");
 
     const currentIsLinkedWorktree = currentTarget ? hasGitFileMarker(currentTarget.repoPath) : false;
     if (!currentIsLinkedWorktree) {
       for (const ancestor of findAncestorGitRepoMarkers(path.dirname(cwd))) {
-        const target = await resolveReviewTarget(ancestor).catch(() => undefined);
+        const target = await resolveReviewTarget(ancestor, cwd).catch(() => undefined);
         if (target && !repos.has(target.repoPath)) repos.set(target.repoPath, "parent");
       }
     }
 
-    const outerRoot = currentIsLinkedWorktree ? { code: 1, stdout: "" } : await pi.exec("git", ["rev-parse", "--show-superproject-working-tree"]);
+    const outerRoot = currentIsLinkedWorktree ? { code: 1, stdout: "" } : await pi.exec("git", ["rev-parse", "--show-superproject-working-tree"], { cwd });
     if (outerRoot.code === 0 && outerRoot.stdout.trim()) {
-      const parentPath = path.resolve(outerRoot.stdout.trim());
-      const target = await resolveReviewTarget(parentPath).catch(() => undefined);
+      const parentPath = resolveGitOutputPath(outerRoot.stdout.trim(), cwd);
+      const target = await resolveReviewTarget(parentPath, cwd).catch(() => undefined);
       if (target && !repos.has(target.repoPath)) repos.set(target.repoPath, "parent");
     }
 
     for (const candidate of walkChildRepoCandidates(cwd, discoveryOptions)) {
-      const target = await resolveReviewTarget(candidate).catch(() => undefined);
+      const target = await resolveReviewTarget(candidate, cwd).catch(() => undefined);
       if (!target) continue;
       if (!repos.has(target.repoPath)) repos.set(target.repoPath, "child");
       if (repos.size >= discoveryOptions.maxRepos) break;
@@ -1746,30 +1749,30 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
 
     const summaries: DiscoveredRepo[] = [];
     for (const [repoPath, kind] of repos) {
-      summaries.push(await summarizeDiscoveredRepo(repoPath, kind));
+      summaries.push(await summarizeDiscoveredRepo(repoPath, kind, cwd));
     }
     discoveryCache = { key: cacheKey, repos: summaries };
     return summaries;
   };
 
-  const resolveReviewTarget = async (repoPath?: string): Promise<ReviewTarget> => {
-    const requestedPath = path.resolve(process.cwd(), repoPath || state.repoPath || ".");
+  const resolveReviewTarget = async (repoPath: string | undefined, cwd: string): Promise<ReviewTarget> => {
+    const requestedPath = path.resolve(cwd, repoPath || state.repoPath || ".");
     if (!fs.existsSync(requestedPath)) throw new Error(`Review target does not exist: ${repoPath || requestedPath}`);
     if (!fs.statSync(requestedPath).isDirectory()) throw new Error(`Review target is not a directory: ${repoPath || requestedPath}`);
 
     const provisional: ReviewTarget = {
       repoPath: requestedPath,
-      displayPath: formatRepoDisplayPath(requestedPath),
+      displayPath: formatRepoDisplayPath(requestedPath, cwd),
     };
     const root = await execGit(provisional, ["rev-parse", "--show-toplevel"]);
     if (root.code !== 0) {
       throw new Error(root.stderr.trim() || `Review target is not a git repository: ${provisional.displayPath}`);
     }
 
-    const repoRoot = path.resolve(root.stdout.trim());
+    const repoRoot = resolveGitOutputPath(root.stdout.trim(), requestedPath);
     return {
       repoPath: repoRoot,
-      displayPath: formatRepoDisplayPath(repoRoot),
+      displayPath: formatRepoDisplayPath(repoRoot, cwd),
     };
   };
 
@@ -1782,11 +1785,11 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
   };
 
   const chooseReviewTarget = async (parsedArgs: ParsedReviewArgs, ctx: ExtensionCommandContext): Promise<ReviewTarget> => {
-    if (parsedArgs.repoPath) return resolveReviewTarget(parsedArgs.repoPath);
-    if (parsedArgs.current) return resolveReviewTarget(".");
-    if (parsedArgs.baseRef) return resolveReviewTarget(".");
+    if (parsedArgs.repoPath) return resolveReviewTarget(parsedArgs.repoPath, ctx.cwd);
+    if (parsedArgs.current) return resolveReviewTarget(".", ctx.cwd);
+    if (parsedArgs.baseRef) return resolveReviewTarget(".", ctx.cwd);
 
-    const discovered = rankDiscoveredRepos(await discoverReviewRepos({ maxDepth: parsedArgs.scanDepth }), state.recentTargets);
+    const discovered = rankDiscoveredRepos(await discoverReviewRepos(ctx.cwd, { maxDepth: parsedArgs.scanDepth }), state.recentTargets);
     const visibleRepos = parsedArgs.includeClean ? discovered : discovered.filter((repo) => repo.dirty || repo.error);
     const dirtyRepos = discovered.filter((repo) => repo.dirty && !repo.error);
 
@@ -1815,7 +1818,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
 
     const defaultRepo = discovered.find((repo) => repo.kind === "parent") ?? discovered.find((repo) => repo.kind === "current");
     if (defaultRepo) return { repoPath: defaultRepo.repoPath, displayPath: defaultRepo.displayPath };
-    return resolveReviewTarget(".");
+    return resolveReviewTarget(".", ctx.cwd);
   };
 
   const buildSnapshot = async (target: ReviewTarget, requestedBaseRef?: string): Promise<ReviewSnapshot> => {
@@ -1978,7 +1981,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
       let target: ReviewTarget;
 
       try {
-        const parsedArgs = parseReviewArgs(args);
+        const parsedArgs = parseReviewArgs(args, ctx.cwd);
         requestedBaseRef = parsedArgs.baseRef;
         target = await chooseReviewTarget(parsedArgs, ctx);
         const previousRepoPath = state.repoPath;
@@ -2023,7 +2026,7 @@ export default function interactiveCodeReview(pi: ExtensionAPI) {
 
         if (action.type === "refresh") {
           try {
-            const refreshTarget = await resolveReviewTarget(state.repoPath);
+            const refreshTarget = await resolveReviewTarget(state.repoPath, ctx.cwd);
             snapshot = await buildSnapshot(refreshTarget, requestedBaseRef ?? state.baseRef);
             applySelectionToSnapshot(snapshot, uiState, state.selection);
             persistState();
