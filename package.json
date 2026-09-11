@@ -40,6 +40,6 @@
     "@sinclair/typebox": "^0.34.52",
     "@types/node": "^24.13.3",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }
