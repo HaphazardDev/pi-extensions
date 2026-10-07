@@ -40,7 +40,7 @@
     "@sinclair/typebox": "*"
   },
   "engines": {
-    "node": ">=20.6.0"
+    "node": ">=22.19.0"
   },
   "os": [
     "darwin",
