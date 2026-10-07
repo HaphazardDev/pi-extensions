@@ -1,5 +1,11 @@
 # @haphazarddev/pi-interactive-code-review
 
+## 0.3.4
+
+### Patch Changes
+
+- ff2166f: Require Node.js 22.19 or newer to match the Pi 1.0 runtime requirement.
+
 ## 0.3.3
 
 ### Patch Changes
