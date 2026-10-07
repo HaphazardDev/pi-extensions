@@ -1,6 +1,6 @@
 {
   "name": "@haphazarddev/pi-background-bash",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Run and manage shell commands in the background from pi.",
   "type": "module",
   "license": "MIT",

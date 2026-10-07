@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+### Patch Changes
+
+- ff2166f: Require Node.js 22.19 or newer to match the Pi 1.0 runtime requirement.
+- 9154634: Migrate tool schemas from the legacy `@sinclair/typebox` package to Pi's host-provided `typebox` 1.x package.
+
 All notable changes to this package will be documented in this file.
 
 ## 0.1.0

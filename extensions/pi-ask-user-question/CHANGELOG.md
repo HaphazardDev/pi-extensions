@@ -1,5 +1,12 @@
 # @haphazarddev/pi-ask-user-question
 
+## 0.3.1
+
+### Patch Changes
+
+- ff2166f: Require Node.js 22.19 or newer to match the Pi 1.0 runtime requirement.
+- 9154634: Migrate tool schemas from the legacy `@sinclair/typebox` package to Pi's host-provided `typebox` 1.x package.
+
 ## 0.3.0
 
 ### Minor Changes
